@@ -1,0 +1,10 @@
+torch==2.5.0
+torchvision==0.20.0
+stable-baselines3==2.3.0
+gym==0.26.2
+opencv-python==4.10.0.84
+mss==9.0.1
+python-uinput==0.13.0
+numpy==2.0.0
+pillow==10.4.0
+tqdm==4.66.5
