@@ -14,7 +14,15 @@ MOVEMENT_KEYS = {
     "right": {"right"},
     "up": {"up"},
     "down": {"down"},
+    "left_up": {"left", "up"},
+    "left_down": {"left", "down"},
+    "right_up": {"right", "up"},
+    "right_down": {"right", "down"},
     "stay": set(),
+}
+KEYS_TO_MOVEMENT = {
+    frozenset(keys): movement
+    for movement, keys in MOVEMENT_KEYS.items()
 }
 
 
@@ -63,7 +71,7 @@ class PlayerTracker:
         smoothing: float = 0.65,
         prediction_timeout: float = 0.35,
         stop_timeout: float = 0.70,
-        max_speed: float = 900.0,
+        max_speed: float = 320.0,
     ):
         self.smoothing = clamp(smoothing, 0.0, 1.0)
         self.prediction_timeout = max(0.0, prediction_timeout)
@@ -79,6 +87,8 @@ class PlayerTracker:
         self.started_at: Optional[float] = None
         self.last_update: Optional[float] = None
         self.last_seen: Optional[float] = None
+        self.last_measured_x: Optional[float] = None
+        self.last_measured_y: Optional[float] = None
         self.confidence = 0.0
 
     def update(
@@ -97,19 +107,27 @@ class PlayerTracker:
         if detection is not None:
             measured_x = float(detection["center_x"])
             measured_y = float(detection["center_y"])
-            if self.x is None or self.y is None or previous_update is None:
+            if (
+                self.x is None
+                or self.y is None
+                or self.last_seen is None
+                or self.last_measured_x is None
+                or self.last_measured_y is None
+            ):
                 self.x = measured_x
                 self.y = measured_y
                 self.vx = self.vy = 0.0
             else:
-                dt = max(1e-3, now - previous_update)
+                # 速度必须按两次真实测量的间隔计算。若使用每帧更新时间，
+                # 中间发生漏检时会把速度放大数倍并让预测位置飞出屏幕。
+                dt = max(1e-3, now - self.last_seen)
                 raw_vx = clamp(
-                    (measured_x - self.x) / dt,
+                    (measured_x - self.last_measured_x) / dt,
                     -self.max_speed,
                     self.max_speed,
                 )
                 raw_vy = clamp(
-                    (measured_y - self.y) / dt,
+                    (measured_y - self.last_measured_y) / dt,
                     -self.max_speed,
                     self.max_speed,
                 )
@@ -132,6 +150,8 @@ class PlayerTracker:
             self.x = clamp(self.x, 0, max(0, width - 1))
             self.y = clamp(self.y, 0, max(0, height - 1))
             self.last_seen = now
+            self.last_measured_x = measured_x
+            self.last_measured_y = measured_y
             self.confidence = float(detection.get("confidence", 1.0))
             source = "detected"
             missing = 0.0
@@ -189,8 +209,8 @@ class BulletTracker:
         self,
         max_match_distance: float = 55.0,
         stale_timeout: float = 0.35,
-        velocity_smoothing: float = 0.55,
-        max_speed: float = 1600.0,
+        velocity_smoothing: float = 0.35,
+        max_speed: float = 700.0,
     ):
         self.max_match_distance = max_match_distance
         self.stale_timeout = stale_timeout
@@ -352,12 +372,16 @@ class RiskPlanner:
         "right": (1.0, 0.0),
         "up": (0.0, -1.0),
         "down": (0.0, 1.0),
+        "left_up": (-0.7071, -0.7071),
+        "left_down": (-0.7071, 0.7071),
+        "right_up": (0.7071, -0.7071),
+        "right_down": (0.7071, 0.7071),
     }
 
     def __init__(
         self,
         safe_margin: int = 36,
-        horizon: float = 0.55,
+        horizon: float = 0.65,
         player_speed: float = 170.0,
         allow_vertical: bool = True,
     ):
@@ -374,10 +398,21 @@ class RiskPlanner:
         width: int,
         height: int,
         preferred_x: Optional[float] = None,
+        preferred_y: Optional[float] = None,
+        positioning_weight: float = 0.015,
     ) -> dict[str, float]:
         movements = ["stay", "left", "right"]
         if self.allow_vertical:
-            movements.extend(["up", "down"])
+            movements.extend(
+                [
+                    "up",
+                    "down",
+                    "left_up",
+                    "left_down",
+                    "right_up",
+                    "right_down",
+                ]
+            )
         costs = {}
         for movement in movements:
             dx, dy = self.VECTORS[movement]
@@ -394,23 +429,51 @@ class RiskPlanner:
                 boundary_cost += (target_y - (height - self.safe_margin)) * 8.0
 
             bullet_cost = 0.0
+            nearest_path_distance = float("inf")
             for bullet in bullets:
-                future_x = float(bullet["center_x"]) + float(
-                    bullet.get("velocity_x", 0.0)
-                ) * self.horizon
-                future_y = float(bullet["center_y"]) + float(
-                    bullet.get("velocity_y", 0.0)
-                ) * self.horizon
-                distance = math.hypot(future_x - target_x, future_y - target_y)
-                if distance < 150:
-                    bullet_cost += ((150.0 - distance) / 150.0) ** 2 * 100.0
+                for fraction in (0.25, 0.5, 0.75, 1.0):
+                    sample_time = self.horizon * fraction
+                    player_sample_x = (
+                        player_x + dx * self.player_speed * sample_time
+                    )
+                    player_sample_y = (
+                        player_y + dy * self.player_speed * sample_time
+                    )
+                    bullet_sample_x = float(bullet["center_x"]) + float(
+                        bullet.get("velocity_x", 0.0)
+                    ) * sample_time
+                    bullet_sample_y = float(bullet["center_y"]) + float(
+                        bullet.get("velocity_y", 0.0)
+                    ) * sample_time
+                    distance = math.hypot(
+                        bullet_sample_x - player_sample_x,
+                        bullet_sample_y - player_sample_y,
+                    )
+                    nearest_path_distance = min(
+                        nearest_path_distance,
+                        distance,
+                    )
+                    if distance < 135:
+                        bullet_cost += (
+                            ((135.0 - distance) / 135.0) ** 2
+                            * 38.0
+                            * (1.15 - fraction * 0.15)
+                        )
 
-            inertia_cost = 3.0 if movement != "stay" else 0.0
-            aim_cost = (
-                abs(target_x - preferred_x) * 0.015
-                if preferred_x is not None
-                else 0.0
-            )
+            inertia_cost = 1.5 if movement != "stay" else 0.0
+            if movement == "stay" and nearest_path_distance < 165:
+                inertia_cost += (
+                    (165.0 - nearest_path_distance) / 165.0 * 10.0
+                )
+            aim_cost = 0.0
+            if preferred_x is not None:
+                aim_cost += (
+                    abs(target_x - preferred_x) * positioning_weight
+                )
+            if preferred_y is not None:
+                aim_cost += (
+                    abs(target_y - preferred_y) * positioning_weight
+                )
             costs[movement] = round(
                 boundary_cost + bullet_cost + inertia_cost + aim_cost,
                 4,
@@ -425,6 +488,8 @@ class RiskPlanner:
         width: int,
         height: int,
         preferred_x: Optional[float] = None,
+        preferred_y: Optional[float] = None,
+        positioning_weight: float = 0.015,
     ) -> tuple[str, dict[str, float]]:
         costs = self.candidate_costs(
             bullets,
@@ -433,8 +498,20 @@ class RiskPlanner:
             width,
             height,
             preferred_x,
+            preferred_y,
+            positioning_weight,
         )
-        order = ("stay", "left", "right", "up", "down")
+        order = (
+            "stay",
+            "left",
+            "right",
+            "up",
+            "down",
+            "left_up",
+            "left_down",
+            "right_up",
+            "right_down",
+        )
         movement = min(costs, key=lambda item: (costs[item], order.index(item)))
         return movement, costs
 
@@ -448,6 +525,23 @@ class ActionStabilizer:
         ("up", "down"),
         ("down", "up"),
     }
+
+    @staticmethod
+    def _is_reversal(current: str, proposed: str) -> bool:
+        current_keys = MOVEMENT_KEYS.get(current, set())
+        proposed_keys = MOVEMENT_KEYS.get(proposed, set())
+        return (
+            ("left" in current_keys and "right" in proposed_keys)
+            or ("right" in current_keys and "left" in proposed_keys)
+            or ("up" in current_keys and "down" in proposed_keys)
+            or ("down" in current_keys and "up" in proposed_keys)
+        )
+
+    @staticmethod
+    def _without_key(movement: str, key: str) -> str:
+        keys = set(MOVEMENT_KEYS.get(movement, set()))
+        keys.discard(key)
+        return KEYS_TO_MOVEMENT.get(frozenset(keys), "stay")
 
     def __init__(
         self,
@@ -472,6 +566,7 @@ class ActionStabilizer:
         height: int,
         safe_to_control: bool,
         now: Optional[float] = None,
+        emergency: bool = False,
     ) -> tuple[str, str]:
         now = time.monotonic() if now is None else now
         if proposed not in MOVEMENT_KEYS:
@@ -480,14 +575,46 @@ class ActionStabilizer:
         if not safe_to_control:
             proposed = "stay"
             reason = "player_unavailable"
-        elif proposed == "left" and player_x <= self.safe_margin:
-            proposed, reason = "right", "left_boundary"
-        elif proposed == "right" and player_x >= width - self.safe_margin:
-            proposed, reason = "left", "right_boundary"
-        elif proposed == "up" and player_y <= self.safe_margin:
-            proposed, reason = "down", "top_boundary"
-        elif proposed == "down" and player_y >= height - self.safe_margin:
-            proposed, reason = "up", "bottom_boundary"
+        elif (
+            "left" in MOVEMENT_KEYS[proposed]
+            and player_x <= self.safe_margin
+        ):
+            proposed = (
+                "right"
+                if proposed == "left"
+                else self._without_key(proposed, "left")
+            )
+            reason = "left_boundary"
+        elif (
+            "right" in MOVEMENT_KEYS[proposed]
+            and player_x >= width - self.safe_margin
+        ):
+            proposed = (
+                "left"
+                if proposed == "right"
+                else self._without_key(proposed, "right")
+            )
+            reason = "right_boundary"
+        elif (
+            "up" in MOVEMENT_KEYS[proposed]
+            and player_y <= self.safe_margin
+        ):
+            proposed = (
+                "down"
+                if proposed == "up"
+                else self._without_key(proposed, "up")
+            )
+            reason = "top_boundary"
+        elif (
+            "down" in MOVEMENT_KEYS[proposed]
+            and player_y >= height - self.safe_margin
+        ):
+            proposed = (
+                "up"
+                if proposed == "down"
+                else self._without_key(proposed, "down")
+            )
+            reason = "bottom_boundary"
 
         if self.last_change is None:
             self.current = proposed
@@ -499,10 +626,10 @@ class ActionStabilizer:
         elapsed = now - self.last_change
         required = (
             self.reversal_cooldown
-            if (self.current, proposed) in self.OPPOSITE
+            if self._is_reversal(self.current, proposed)
             else self.min_hold_seconds
         )
-        if elapsed < required and safe_to_control:
+        if elapsed < required and safe_to_control and not emergency:
             self.blocked_count += 1
             return self.current, "switch_cooldown"
 

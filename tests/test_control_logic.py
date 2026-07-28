@@ -121,6 +121,61 @@ class PlanningTests(unittest.TestCase):
         self.assertIn(movement, {"left", "right", "stay"})
         self.assertNotEqual(costs["left"], costs["right"])
 
+    def test_planner_can_choose_diagonal_gap(self) -> None:
+        planner = RiskPlanner(safe_margin=30, allow_vertical=True)
+        movement, costs = planner.choose(
+            [
+                {
+                    "center_x": 200,
+                    "center_y": 300,
+                    "velocity_x": 200,
+                    "velocity_y": 0,
+                }
+            ],
+            player_x=320,
+            player_y=360,
+            width=640,
+            height=480,
+        )
+
+        self.assertEqual(movement, "right_down")
+        self.assertLess(costs["right_down"], costs["right"])
+
+    def test_diagonal_boundary_keeps_safe_axis(self) -> None:
+        stabilizer = ActionStabilizer(safe_margin=30)
+        movement, reason = stabilizer.stabilize(
+            "left_up",
+            10,
+            200,
+            640,
+            480,
+            True,
+            now=1.0,
+        )
+
+        self.assertEqual((movement, reason), ("up", "left_boundary"))
+
+    def test_emergency_reversal_bypasses_cooldown(self) -> None:
+        stabilizer = ActionStabilizer(
+            min_hold_seconds=0.2,
+            reversal_cooldown=0.5,
+        )
+        stabilizer.stabilize(
+            "right", 300, 300, 640, 480, True, now=1.0
+        )
+        movement, reason = stabilizer.stabilize(
+            "left",
+            300,
+            300,
+            640,
+            480,
+            True,
+            now=1.1,
+            emergency=True,
+        )
+        self.assertEqual(movement, "left")
+        self.assertEqual(reason, "accepted")
+
 
 class SceneAndInputTests(unittest.TestCase):
     def test_scene_requires_repeated_battle_evidence(self) -> None:
@@ -185,10 +240,13 @@ class SceneAndInputTests(unittest.TestCase):
         inputs.apply("right", True, False)
         self.assertIn(("up", "left"), backend.events)
         self.assertIn(("down", "right"), backend.events)
+        inputs.apply("left_up", True, True)
+        self.assertIn(("down", "left"), backend.events)
+        self.assertIn(("down", "up"), backend.events)
+        self.assertIn(("down", "shift"), backend.events)
         inputs.release_all()
         self.assertEqual(inputs.held, set())
 
 
 if __name__ == "__main__":
     unittest.main()
-

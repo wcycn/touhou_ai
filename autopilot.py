@@ -44,8 +44,196 @@ from control_logic import (
 from inference_device import select_inference_device
 
 PLAYER_FALLBACK_CONFIDENCE = 0.03
-PLAYER_FALLBACK_MIN_Y_RATIO = 0.68
-PLAYER_FALLBACK_MAX_X_RATIO = 0.70
+PLAYER_FALLBACK_MIN_Y_RATIO = 0.42
+PLAYFIELD_MAX_X_RATIO = 0.67
+CONTROL_PLAYFIELD_RIGHT_RATIO = 0.64
+ENEMY_BULLET_CONFIDENCE = 0.07
+
+
+def detect_spell_overlay(image):
+    """检测Boss符卡的大幅红色立绘，避免把立绘碎片误认成自机。"""
+    if image is None or not hasattr(image, "shape") or len(image.shape) < 2:
+        return False
+    height, width = image.shape[:2]
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    red_mask = cv2.bitwise_or(
+        cv2.inRange(hsv, (0, 90, 50), (18, 255, 255)),
+        cv2.inRange(hsv, (165, 80, 40), (179, 255, 255)),
+    )
+    red_mask[:, int(width * CONTROL_PLAYFIELD_RIGHT_RATIO):] = 0
+    count, _labels, stats, _centroids = cv2.connectedComponentsWithStats(
+        red_mask,
+        8,
+    )
+    largest_component = max(
+        (int(stats[index, cv2.CC_STAT_AREA]) for index in range(1, count)),
+        default=0,
+    )
+    total_red_pixels = int(cv2.countNonZero(red_mask))
+    return largest_component >= 5000 and total_red_pixels >= 9000
+
+
+def detect_color_player_candidates(image):
+    """从游戏区域提取红色自机精灵，作为YOLO类别误判时的补充。"""
+    if image is None or not hasattr(image, "shape") or len(image.shape) < 2:
+        return []
+    height, width = image.shape[:2]
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    # 严格阈值在亮场景最干净；宽松阈值用于恢复暗背景、半透明弹幕和
+    # JPEG压缩下的灵梦。二者分别聚类，避免宽松色块破坏严格候选。
+    threshold_pairs = (
+        ((0, 110, 90), (12, 255, 255), (168, 90, 80)),
+        ((0, 80, 40), (15, 255, 255), (165, 70, 40)),
+    )
+
+    candidates = []
+    for low_min, low_max, high_min in threshold_pairs:
+        red_low = cv2.inRange(hsv, low_min, low_max)
+        red_high = cv2.inRange(hsv, high_min, (179, 255, 255))
+        mask = cv2.bitwise_or(red_low, red_high)
+        mask[:, int(width * PLAYFIELD_MAX_X_RATIO):] = 0
+        mask[: int(height * PLAYER_FALLBACK_MIN_Y_RATIO), :] = 0
+
+        count, _labels, stats, centroids = (
+            cv2.connectedComponentsWithStats(mask, 8)
+        )
+        parts = []
+        for index in range(1, count):
+            x, y, box_width, box_height, area = (
+                int(value) for value in stats[index]
+            )
+            if not (
+                2 <= box_width <= 32
+                and 2 <= box_height <= 38
+                and 4 <= area <= 380
+            ):
+                continue
+            center_x, center_y = (
+                float(value) for value in centroids[index]
+            )
+            parts.append(
+                {
+                    "x1": x,
+                    "y1": y,
+                    "x2": x + box_width,
+                    "y2": y + box_height,
+                    "center_x": center_x,
+                    "center_y": center_y,
+                    "area": area,
+                }
+            )
+
+        clusters = []
+        for part in sorted(
+            parts,
+            key=lambda item: item["area"],
+            reverse=True,
+        ):
+            target = None
+            for cluster in clusters:
+                horizontal_distance = abs(
+                    part["center_x"] - cluster["center_x"]
+                )
+                vertical_gap = max(
+                    0.0,
+                    part["y1"] - cluster["y2"],
+                    cluster["y1"] - part["y2"],
+                )
+                merged_width = (
+                    max(part["x2"], cluster["x2"])
+                    - min(part["x1"], cluster["x1"])
+                )
+                merged_height = (
+                    max(part["y2"], cluster["y2"])
+                    - min(part["y1"], cluster["y1"])
+                )
+                if (
+                    horizontal_distance <= 18.0
+                    and vertical_gap <= 30.0
+                    and merged_width <= 38
+                    and merged_height <= 48
+                ):
+                    target = cluster
+                    break
+            if target is None:
+                clusters.append(dict(part))
+                continue
+            total_area = target["area"] + part["area"]
+            target["center_x"] = (
+                target["center_x"] * target["area"]
+                + part["center_x"] * part["area"]
+            ) / total_area
+            target["center_y"] = (
+                target["center_y"] * target["area"]
+                + part["center_y"] * part["area"]
+            ) / total_area
+            target["area"] = total_area
+            target["x1"] = min(target["x1"], part["x1"])
+            target["y1"] = min(target["y1"], part["y1"])
+            target["x2"] = max(target["x2"], part["x2"])
+            target["y2"] = max(target["y2"], part["y2"])
+
+        for cluster in clusters:
+            box_width = int(cluster["x2"] - cluster["x1"])
+            box_height = int(cluster["y2"] - cluster["y1"])
+            if not (
+                cluster["area"] >= 35
+                and 5 <= box_width <= 38
+                # 灵梦的红色精灵在480p画面中是明显的纵向组合；P点、
+                # 红色弹幕通常接近方形或只是很短的色块。
+                and 24 <= box_height <= 48
+            ):
+                continue
+            center_x = int(round((cluster["x1"] + cluster["x2"]) / 2))
+            center_y = min(
+                height - 1,
+                int(round((cluster["y1"] + cluster["y2"]) / 2 + 8)),
+            )
+            candidate = {
+                "bbox": [
+                    cluster["x1"],
+                    cluster["y1"],
+                    cluster["x2"],
+                    cluster["y2"],
+                ],
+                "x": int(cluster["x1"]),
+                "y": int(cluster["y1"]),
+                "center_x": center_x,
+                "center_y": center_y,
+                "width": box_width,
+                "height": box_height,
+                "confidence": min(
+                    0.35,
+                    0.08 + float(cluster["area"]) / 800.0,
+                ),
+                "class_id": -1,
+                "class_name": "character_color_fallback",
+                "model_class_name": None,
+                "player_fallback_candidate": True,
+                "player_detection_source": "red_color_fallback",
+            }
+            duplicate = next(
+                (
+                    existing
+                    for existing in candidates
+                    if (
+                        (
+                            existing["center_x"] - center_x
+                        ) ** 2
+                        + (
+                            existing["center_y"] - center_y
+                        ) ** 2
+                    ) ** 0.5
+                    <= 22.0
+                ),
+                None,
+            )
+            if duplicate is None:
+                candidates.append(candidate)
+            elif candidate["confidence"] > duplicate["confidence"]:
+                duplicate.update(candidate)
+    return candidates
+
 
 # YOLO推理由Ultralytics/PyTorch负责。
 try:
@@ -136,10 +324,11 @@ class TouhouAIController:
         self.running = False
         self.paused = False
         self.auto_bomb = True
-        self.ai_mode = "balanced"
+        self.ai_mode = "defensive"
 
         self.last_bomb_time = float("-inf")
         self.bomb_cooldown = 4.0
+        self.estimated_bombs = 3
 
         # 统计信息
         self.stats = {
@@ -537,13 +726,24 @@ class TouhouAIController:
                                     and center_y
                                     >= image_height * PLAYER_FALLBACK_MIN_Y_RATIO
                                     and center_x
-                                    <= image_width * PLAYER_FALLBACK_MAX_X_RATIO
+                                    <= image_width * PLAYFIELD_MAX_X_RATIO
                                     and 6 <= box_width <= 45
                                     and 6 <= box_height <= 45
+                                )
+                                low_confidence_bullet = (
+                                    (
+                                        "bullet_enemy" in class_name
+                                        or class_name == "bullet"
+                                    )
+                                    and float(conf)
+                                    >= ENEMY_BULLET_CONFIDENCE
+                                    and center_x
+                                    <= image_width * PLAYFIELD_MAX_X_RATIO
                                 )
                                 if (
                                     conf < self.confidence_threshold
                                     and not fallback_candidate
+                                    and not low_confidence_bullet
                                 ):
                                     continue
 
@@ -566,11 +766,23 @@ class TouhouAIController:
                                     'player_fallback_candidate': (
                                         fallback_candidate
                                     ),
+                                    'low_confidence_bullet': (
+                                        low_confidence_bullet
+                                    ),
                                 }
                                 detections.append(detection)
 
                             except Exception as tensor_error:
                                 continue
+
+                detections.extend(detect_color_player_candidates(image))
+                if detect_spell_overlay(image):
+                    detections.append(
+                        {
+                            "class_name": "scene_spell_overlay",
+                            "confidence": 1.0,
+                        }
+                    )
 
                 self.stats['detections'] += len(detections)
                 return detections
@@ -615,19 +827,26 @@ class TouhouAIController:
         players = []
         fallback_players = []
         powerups = []
+        raw_spell_overlay = False
 
         width = self.screen_region["width"] if self.screen_region else 640
         height = self.screen_region["height"] if self.screen_region else 480
-        screen_center_x = width // 2
+        control_width = max(
+            120,
+            int(round(width * CONTROL_PLAYFIELD_RIGHT_RATIO)),
+        )
+        screen_center_x = control_width // 2
 
         for detection in detections:
             class_name = str(detection.get("class_name", "")).lower()
-            if detection.get("player_fallback_candidate") or (
+            if class_name == "scene_spell_overlay":
+                raw_spell_overlay = True
+            elif detection.get("player_fallback_candidate") or (
                 class_name == "enemy_small_red"
                 and float(detection.get("center_y", 0))
                 >= height * PLAYER_FALLBACK_MIN_Y_RATIO
                 and float(detection.get("center_x", width))
-                <= width * PLAYER_FALLBACK_MAX_X_RATIO
+                <= width * PLAYFIELD_MAX_X_RATIO
                 and 6 <= float(detection.get("width", 0)) <= 45
                 and 6 <= float(detection.get("height", 0)) <= 45
             ):
@@ -639,42 +858,238 @@ class TouhouAIController:
             elif "bullet_player" in class_name:
                 player_bullets.append(detection)
             elif "bullet_enemy" in class_name or class_name == "bullet":
-                bullets.append(detection)
+                if (
+                    float(detection.get("center_x", width))
+                    <= width * PLAYFIELD_MAX_X_RATIO
+                ):
+                    bullets.append(detection)
             elif "enemy" in class_name or "boss" in class_name:
                 enemies.append(detection)
             elif "power" in class_name or "item" in class_name:
                 powerups.append(detection)
 
+        # 颜色启发式可能把持续的棕红色Boss背景也识别成立绘。一次立绘保护
+        # 最多持续1.6秒；必须连续若干正常帧后才允许再次触发。
+        if raw_spell_overlay:
+            self._spell_overlay_clear_frames = 0
+            if not getattr(self, "_spell_overlay_latched", False):
+                self._spell_overlay_latched = True
+                self._spell_overlay_started_at = now
+        else:
+            self._spell_overlay_clear_frames = (
+                getattr(self, "_spell_overlay_clear_frames", 0) + 1
+            )
+            if self._spell_overlay_clear_frames >= 5:
+                self._spell_overlay_latched = False
+                self._spell_overlay_started_at = None
+        overlay_started_at = getattr(
+            self,
+            "_spell_overlay_started_at",
+            None,
+        )
+        spell_overlay = bool(
+            raw_spell_overlay
+            and getattr(self, "_spell_overlay_latched", False)
+            and overlay_started_at is not None
+            and now - overlay_started_at <= 1.6
+        )
+
         plausible_players = [
             candidate
             for candidate in players
-            if float(candidate.get("center_y", 0)) >= height * 0.62
+            if (
+                float(candidate.get("center_y", 0))
+                >= height * PLAYER_FALLBACK_MIN_Y_RATIO
+                and float(candidate.get("center_x", width))
+                <= width * PLAYFIELD_MAX_X_RATIO
+            )
         ]
-        player = max(
-            plausible_players,
-            key=lambda item: float(item.get("confidence", 0.0)),
-            default=None,
+        player_candidates = [
+            *plausible_players,
+            *fallback_players,
+        ]
+        if spell_overlay:
+            player_candidates = []
+        player = None
+        tracker_x = getattr(self.player_tracker, "x", None)
+        tracker_y = getattr(self.player_tracker, "y", None)
+        tracker_seen = getattr(self.player_tracker, "last_seen", None)
+        tracker_recent = (
+            tracker_x is not None
+            and tracker_y is not None
+            and tracker_seen is not None
+            and now - tracker_seen
+            <= float(getattr(self, "player_lost_timeout", 0.70))
         )
-        fallback_player = max(
-            fallback_players,
-            key=lambda item: (
-                float(item.get("confidence", 0.0)),
-                float(item.get("height", 0.0)),
-            ),
-            default=None,
-        )
-        if fallback_player is not None and (
-            player is None
-            or float(fallback_player["center_y"])
-            > float(player["center_y"]) + height * 0.08
+        if spell_overlay and tracker_x is not None and tracker_y is not None:
+            player = {
+                "class_name": "character_overlay_hold",
+                "center_x": float(tracker_x),
+                "center_y": float(tracker_y),
+                "confidence": 0.10,
+                "player_detection_source": "spell_overlay_hold",
+            }
+        if player_candidates and tracker_recent:
+            nearby = [
+                candidate
+                for candidate in player_candidates
+                if (
+                    (
+                        float(candidate["center_x"]) - float(tracker_x)
+                    ) ** 2
+                    + (
+                        float(candidate["center_y"]) - float(tracker_y)
+                    ) ** 2
+                ) ** 0.5
+                <= 60.0
+            ]
+            if nearby:
+                player = min(
+                    nearby,
+                    key=lambda item: (
+                        (
+                            0
+                            if item.get("player_detection_source")
+                            == "red_color_fallback"
+                            else 1
+                        ),
+                        (
+                            (
+                                float(item["center_x"]) - float(tracker_x)
+                            ) ** 2
+                            + (
+                                float(item["center_y"]) - float(tracker_y)
+                            ) ** 2
+                        ) ** 0.5
+                        - float(item.get("confidence", 0.0)) * 12.0,
+                    ),
+                )
+        if player is None and player_candidates and not tracker_recent:
+            # 初次锁定时选择游戏区域中最低的红色精灵。已经跟踪过但长时
+            # 丢失后，必须由相近位置连续两帧确认，避免一帧HUD假目标抢锁。
+            deep_candidates = [
+                candidate
+                for candidate in player_candidates
+                if float(candidate.get("center_y", 0))
+                >= height * 0.65
+            ]
+            if deep_candidates:
+                candidate = max(
+                    deep_candidates,
+                    key=lambda item: (
+                        float(item.get("center_y", 0.0)),
+                        float(item.get("confidence", 0.0)),
+                    ),
+                )
+                if tracker_seen is None:
+                    player = candidate
+                else:
+                    pending = getattr(
+                        self,
+                        "_player_reacquire_candidate",
+                        None,
+                    )
+                    if pending is not None:
+                        distance = (
+                            (
+                                float(candidate["center_x"])
+                                - float(pending["center_x"])
+                            ) ** 2
+                            + (
+                                float(candidate["center_y"])
+                                - float(pending["center_y"])
+                            ) ** 2
+                        ) ** 0.5
+                    else:
+                        distance = float("inf")
+                    if distance <= 65.0:
+                        self._player_reacquire_count = (
+                            getattr(self, "_player_reacquire_count", 1) + 1
+                        )
+                    else:
+                        self._player_reacquire_count = 1
+                    self._player_reacquire_candidate = dict(candidate)
+                    if self._player_reacquire_count >= 2:
+                        player = candidate
+
+        # 死亡或阶段切换后，自机会从屏幕底部瞬间重生。即使错误模型目标
+        # 让旧跟踪仍保持 recent，也允许稳定的颜色候选连续两帧后抢回锁定。
+        deep_color_candidates = [
+            candidate
+            for candidate in player_candidates
+            if (
+                candidate.get("player_detection_source")
+                == "red_color_fallback"
+                and float(candidate.get("confidence", 0.0)) >= 0.30
+                and float(candidate.get("center_y", 0.0)) >= height * 0.65
+            )
+        ]
+        far_deep_candidate = None
+        if deep_color_candidates and tracker_x is not None and tracker_y is not None:
+            candidate = max(
+                deep_color_candidates,
+                key=lambda item: float(item.get("center_y", 0.0)),
+            )
+            candidate_distance = (
+                (
+                    float(candidate["center_x"]) - float(tracker_x)
+                ) ** 2
+                + (
+                    float(candidate["center_y"]) - float(tracker_y)
+                ) ** 2
+            ) ** 0.5
+            if candidate_distance > 60.0:
+                far_deep_candidate = candidate
+
+        if far_deep_candidate is not None:
+            pending = getattr(self, "_player_deep_reacquire_candidate", None)
+            pending_distance = (
+                (
+                    float(far_deep_candidate["center_x"])
+                    - float(pending["center_x"])
+                ) ** 2
+                + (
+                    float(far_deep_candidate["center_y"])
+                    - float(pending["center_y"])
+                ) ** 2
+            ) ** 0.5 if pending is not None else float("inf")
+            if pending_distance <= 45.0:
+                self._player_deep_reacquire_count = (
+                    getattr(self, "_player_deep_reacquire_count", 1) + 1
+                )
+            else:
+                self._player_deep_reacquire_count = 1
+            self._player_deep_reacquire_candidate = dict(far_deep_candidate)
+            if self._player_deep_reacquire_count >= 2:
+                player = far_deep_candidate
+                self._player_deep_reacquire_candidate = None
+                self._player_deep_reacquire_count = 0
+        else:
+            self._player_deep_reacquire_candidate = None
+            self._player_deep_reacquire_count = 0
+
+        if player is not None:
+            self._player_reacquire_candidate = None
+            self._player_reacquire_count = 0
+
+        if player is not None and (
+            player.get("player_fallback_candidate")
+            or str(player.get("class_name", "")).lower()
+            in {"enemy_small_red", "character_fallback"}
         ):
-            player = dict(fallback_player)
+            player = dict(player)
             player.setdefault("model_class_name", player.get("class_name"))
             player["class_name"] = "character_fallback"
-            player["player_detection_source"] = "red_sprite_fallback"
+            player.setdefault(
+                "player_detection_source",
+                "red_sprite_fallback",
+            )
         elif player is not None:
             player = dict(player)
-            player["player_detection_source"] = "model_character"
+            player.setdefault(
+                "player_detection_source",
+                "model_character",
+            )
         player_track = self.player_tracker.update(
             player,
             width,
@@ -693,8 +1108,13 @@ class TouhouAIController:
                 (float(bullet["center_x"]) - player_track.x) ** 2
                 + (float(bullet["center_y"]) - player_track.y) ** 2
             ) ** 0.5
+            collision_bullet = bullet
+            if int(bullet.get("track_age_frames", 1)) < 3:
+                collision_bullet = dict(bullet)
+                collision_bullet["velocity_x"] = 0.0
+                collision_bullet["velocity_y"] = 0.0
             metrics = collision_metrics(
-                bullet,
+                collision_bullet,
                 player_track.x,
                 player_track.y,
             )
@@ -711,12 +1131,16 @@ class TouhouAIController:
                 predicted_threats.append(bullet)
 
         scene_state = self.scene_machine.update(
-            player_detected=player is not None,
-            player_safe=player_track.safe_to_control,
+            player_detected=player is not None or spell_overlay,
+            player_safe=player_track.safe_to_control or spell_overlay,
             bullet_count=len(tracked_bullets),
             enemy_count=len(enemies),
             player_bullet_count=len(player_bullets),
         )
+        previous_scene_state = getattr(self, "_previous_scene_state", None)
+        if previous_scene_state == "transition" and scene_state == "battle":
+            self.estimated_bombs = 3
+        self._previous_scene_state = scene_state
         return {
             "bullets": tracked_bullets,
             "player_bullets": player_bullets,
@@ -732,15 +1156,17 @@ class TouhouAIController:
             "predicted_threats": predicted_threats,
             "max_collision_risk": round(max_collision_risk, 4),
             "scene_state": scene_state,
+            "spell_overlay": spell_overlay,
             "action_allowed": (
                 self.scene_machine.action_allowed
-                and player_track.safe_to_control
+                and (player_track.safe_to_control or spell_overlay)
             ),
             "screen_center_x": screen_center_x,
             "player_x": player_track.x,
             "player_y": player_track.y,
             "screen_bottom": height,
-            "screen_width": width,
+            "screen_width": control_width,
+            "capture_width": width,
             "screen_height": height,
         }
 
@@ -753,6 +1179,22 @@ class TouhouAIController:
         width = int(game_state.get("screen_width", 640))
         height = int(game_state.get("screen_height", 480))
         safe_to_control = bool(game_state.get("action_allowed", False))
+
+        if game_state.get("spell_overlay") and safe_to_control:
+            movement, stabilization_reason = self.action_stabilizer.stabilize(
+                "stay",
+                player_x,
+                player_y,
+                width,
+                height,
+                True,
+                now,
+                emergency=True,
+            )
+            game_state["candidate_costs"] = {}
+            game_state["decision_reason"] = "spell_overlay_hold"
+            game_state["stabilization_reason"] = stabilization_reason
+            return movement, True, False
 
         if not safe_to_control:
             movement, stabilization_reason = self.action_stabilizer.stabilize(
@@ -774,15 +1216,55 @@ class TouhouAIController:
                 self.stats["safe_stop_frames"] += 1
             return movement, False, False
 
+        max_risk = float(game_state.get("max_collision_risk", 0.0))
         enemies = game_state["enemies"]
-        preferred_x = (
-            min(
-                enemies,
-                key=lambda item: abs(float(item["center_x"]) - player_x),
-            )["center_x"]
-            if enemies
-            else width / 2
+        powerups = game_state.get("powerups", [])
+        safe_item_collection = (
+            bool(powerups)
+            and max_risk < 0.18
+            and int(game_state.get("danger_level", 0)) <= 4
+            and not game_state.get("predicted_threats")
+            and len(game_state.get("bullets", [])) <= 10
         )
+        preferred_y = None
+        positioning_weight = 0.03
+        positioning_reason = "recentering"
+        if safe_item_collection:
+            target = min(
+                powerups,
+                key=lambda item: (
+                    0
+                    if str(item.get("class_name", "")).lower()
+                    == "powerup_red"
+                    else 1,
+                    (
+                        float(item["center_x"]) - player_x
+                    ) ** 2
+                    + (
+                        float(item["center_y"]) - player_y
+                    ) ** 2,
+                ),
+            )
+            preferred_x = float(target["center_x"])
+            preferred_y = max(
+                height * 0.58,
+                min(player_y, float(target["center_y"]) + 20.0),
+            )
+            positioning_weight = 0.055
+            positioning_reason = "item_collection"
+        elif enemies:
+            target = min(
+                enemies,
+                key=lambda item: abs(
+                    float(item["center_x"]) - player_x
+                ),
+            )
+            preferred_x = float(target["center_x"])
+            positioning_weight = 0.035
+            positioning_reason = "attack_positioning"
+        else:
+            preferred_x = width / 2
+
         proposed, costs = self.risk_planner.choose(
             game_state["bullets"],
             player_x,
@@ -790,9 +1272,10 @@ class TouhouAIController:
             width,
             height,
             preferred_x=float(preferred_x),
+            preferred_y=preferred_y,
+            positioning_weight=positioning_weight,
         )
 
-        max_risk = float(game_state.get("max_collision_risk", 0.0))
         mode_adjustment = {
             "defensive": -0.08,
             "balanced": 0.0,
@@ -808,10 +1291,33 @@ class TouhouAIController:
             ),
         )
         game_state["risk_trigger"] = round(risk_trigger, 4)
-        if max_risk < risk_trigger and self.ai_mode == "aggressive":
+        if (
+            max_risk < risk_trigger
+            and self.ai_mode == "aggressive"
+            and enemies
+            and not safe_item_collection
+        ):
             proposed = self.calculate_aim_movement(enemies, player_x)
-        elif max_risk < 0.15 and not enemies:
+        elif (
+            max_risk < 0.15
+            and not enemies
+            and not safe_item_collection
+            and abs(player_x - width / 2) <= 24.0
+        ):
             proposed = "stay"
+
+        used_cost_hysteresis = False
+        current_movement = self.action_stabilizer.current
+        if proposed != current_movement and current_movement in costs:
+            improvement = costs[current_movement] - costs[proposed]
+            required_improvement = (
+                2.0
+                if max_risk >= risk_trigger
+                else (0.45 if safe_item_collection else 0.9)
+            )
+            if improvement < required_improvement:
+                proposed = current_movement
+                used_cost_hysteresis = True
 
         movement, stabilization_reason = self.action_stabilizer.stabilize(
             proposed,
@@ -821,12 +1327,15 @@ class TouhouAIController:
             height,
             True,
             now,
+            emergency=max_risk >= risk_trigger,
         )
+        if used_cost_hysteresis:
+            stabilization_reason = "cost_hysteresis"
         game_state["candidate_costs"] = costs
         game_state["decision_reason"] = (
             "trajectory_avoidance"
             if max_risk >= risk_trigger
-            else "positioning"
+            else positioning_reason
         )
         game_state["stabilization_reason"] = stabilization_reason
         if hasattr(self, "stats"):
@@ -838,21 +1347,34 @@ class TouhouAIController:
                 self.stats["collision_warning_frames"] += 1
                 self.stats["dodge_count"] += 1
 
-        bomb_ready = now - getattr(self, "last_bomb_time", float("-inf")) >= getattr(
-            self,
-            "bomb_cooldown",
-            4.0,
+        bomb_ready = (
+            now - getattr(self, "last_bomb_time", float("-inf"))
+            >= getattr(self, "bomb_cooldown", 4.0)
         )
+        estimated_bombs = max(0, int(getattr(self, "estimated_bombs", 3)))
+        bomb_risk_threshold = 0.92 if estimated_bombs > 1 else 0.96
+        immediate_count = len(game_state.get("immediate_threats", []))
+        predicted_count = len(game_state.get("predicted_threats", []))
+        dense_emergency = immediate_count >= 4 and max_risk >= 0.82
         if (
             getattr(self, "auto_bomb", True)
             and bomb_ready
-            and max_risk >= 0.92
-            and len(game_state.get("predicted_threats", [])) >= 2
+            and estimated_bombs > 0
+            and (
+                (
+                    max_risk >= bomb_risk_threshold
+                    and predicted_count >= 1
+                )
+                or dense_emergency
+            )
         ):
             self.last_bomb_time = now
+            self.estimated_bombs = estimated_bombs - 1
+            game_state["estimated_bombs"] = self.estimated_bombs
             game_state["decision_reason"] = "imminent_collision_bomb"
             return "bomb", False, False
 
+        game_state["estimated_bombs"] = estimated_bombs
         return movement, True, max_risk >= risk_trigger
 
     def calculate_aim_movement(self, enemies, screen_center_x):

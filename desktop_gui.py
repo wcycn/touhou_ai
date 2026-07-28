@@ -84,7 +84,7 @@ class ProcessManager:
             existing = self.processes.get(name)
             if existing and existing.poll() is None:
                 self.event_queue.put(
-                    ("log", name, f"{name} 已在运行，忽略重复启动\n")
+                    ("log", name, f"{name} is already running; request ignored.\n")
                 )
                 return False
             command = [sys.executable, str(ROOT_LAUNCHER), *arguments]
@@ -102,7 +102,7 @@ class ProcessManager:
                 )
             except OSError as exc:
                 self.event_queue.put(
-                    ("log", name, f"启动失败: {exc}\n")
+                    ("log", name, f"Could not start process: {exc}\n")
                 )
                 return False
             self.processes[name] = process
@@ -139,7 +139,7 @@ class ProcessManager:
         )
         self.event_queue.put(("state", name, state))
         self.event_queue.put(
-            ("log", name, f"[进程结束，退出码 {return_code}]\n")
+            ("log", name, f"[Process ended with exit code {return_code}]\n")
         )
         self.event_queue.put(("refresh_sessions", None, None))
 
@@ -149,7 +149,7 @@ class ProcessManager:
             if not process or process.poll() is not None:
                 return False
             self.stopping.add(name)
-        self.event_queue.put(("log", name, "正在请求安全停止...\n"))
+        self.event_queue.put(("log", name, "Requesting a safe stop...\n"))
         try:
             os.killpg(process.pid, signal.SIGINT)
         except (ProcessLookupError, PermissionError, OSError):
@@ -163,7 +163,7 @@ class ProcessManager:
                 process.wait(timeout=4)
             except subprocess.TimeoutExpired:
                 self.event_queue.put(
-                    ("log", name, "安全停止超时，正在终止进程...\n")
+                    ("log", name, "Safe stop timed out; terminating process...\n")
                 )
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
@@ -179,19 +179,37 @@ class ProcessManager:
 
 
 class TouhouControlCenter:
+    COLORS = {
+        "canvas": "#f3f4f8",
+        "surface": "#ffffff",
+        "surface_alt": "#f8f8fb",
+        "header": "#222333",
+        "header_soft": "#303247",
+        "text": "#222433",
+        "muted": "#686b7c",
+        "border": "#dfe1e8",
+        "accent": "#c2385a",
+        "accent_hover": "#a92d4b",
+        "safe": "#4657a8",
+        "safe_hover": "#37468e",
+        "success": "#21875b",
+        "warning": "#b36a19",
+        "danger": "#b92743",
+    }
     STATUS_COLORS = {
-        "idle": "#6b7280",
-        "running": "#059669",
-        "completed": "#2563eb",
-        "stopped": "#6b7280",
-        "failed": "#dc2626",
+        "idle": "#7a7d8c",
+        "running": "#21875b",
+        "completed": "#4657a8",
+        "stopped": "#7a7d8c",
+        "failed": "#b92743",
     }
 
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("Touhou AI 控制中心")
-        self.root.geometry("1180x820")
-        self.root.minsize(980, 680)
+        self.root.title("Touhou AI Control Center")
+        self.root.geometry("1240x880")
+        self.root.minsize(1040, 720)
+        self.root.configure(background=self.COLORS["canvas"])
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.events: queue.Queue = queue.Queue()
@@ -208,7 +226,7 @@ class TouhouControlCenter:
         self.preview_photo = None
 
         settings = self.load_settings()
-        self.mode_var = tk.StringVar(value=settings.get("mode", "balanced"))
+        self.mode_var = tk.StringVar(value=settings.get("mode", "defensive"))
         self.confidence_var = tk.StringVar(
             value=str(settings.get("confidence", "0.15"))
         )
@@ -265,91 +283,319 @@ class TouhouControlCenter:
             )
             temporary.replace(SETTINGS_PATH)
         except OSError as exc:
-            self.append_log("GUI", f"无法保存界面设置: {exc}\n")
+            self.append_log("GUI", f"Could not save GUI settings: {exc}\n")
 
     def _setup_style(self):
         style = ttk.Style()
         available = style.theme_names()
         if "clam" in available:
             style.theme_use("clam")
-        style.configure("Title.TLabel", font=("Sans", 20, "bold"))
-        style.configure("Heading.TLabel", font=("Sans", 12, "bold"))
-        style.configure("Accent.TButton", font=("Sans", 10, "bold"))
-        style.configure("Status.TLabel", font=("Sans", 9, "bold"))
+        font = "DejaVu Sans"
+        colors = self.COLORS
+
+        style.configure(".", font=(font, 10))
+        style.configure("TFrame", background=colors["canvas"])
+        style.configure(
+            "Card.TFrame",
+            background=colors["surface"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "SoftCard.TFrame",
+            background=colors["surface_alt"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "TLabel",
+            background=colors["canvas"],
+            foreground=colors["text"],
+        )
+        style.configure(
+            "Card.TLabel",
+            background=colors["surface"],
+            foreground=colors["text"],
+        )
+        style.configure(
+            "SoftCard.TLabel",
+            background=colors["surface_alt"],
+            foreground=colors["text"],
+        )
+        style.configure(
+            "Title.TLabel",
+            font=(font, 20, "bold"),
+            foreground=colors["text"],
+        )
+        style.configure(
+            "Heading.TLabel",
+            font=(font, 12, "bold"),
+            foreground=colors["text"],
+        )
+        style.configure(
+            "Section.TLabel",
+            font=(font, 14, "bold"),
+            foreground=colors["text"],
+        )
+        style.configure("Muted.TLabel", foreground=colors["muted"])
+        style.configure(
+            "CardMuted.TLabel",
+            background=colors["surface"],
+            foreground=colors["muted"],
+        )
+        style.configure(
+            "Status.TLabel",
+            background=colors["surface"],
+            font=(font, 9, "bold"),
+        )
+        style.configure(
+            "Mode.TLabel",
+            background=colors["surface"],
+            font=(font, 12, "bold"),
+        )
+        style.configure(
+            "TLabelframe",
+            background=colors["surface"],
+            bordercolor=colors["border"],
+            borderwidth=1,
+            relief="solid",
+        )
+        style.configure(
+            "TLabelframe.Label",
+            background=colors["canvas"],
+            foreground=colors["text"],
+            font=(font, 11, "bold"),
+            padding=(4, 0),
+        )
+        style.configure(
+            "TNotebook",
+            background=colors["canvas"],
+            borderwidth=0,
+            tabmargins=(4, 4, 4, 0),
+        )
+        style.configure(
+            "TNotebook.Tab",
+            background=colors["canvas"],
+            foreground=colors["muted"],
+            borderwidth=0,
+            padding=(18, 10),
+            font=(font, 10, "bold"),
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[
+                ("selected", colors["surface"]),
+                ("active", colors["surface_alt"]),
+            ],
+            foreground=[
+                ("selected", colors["accent"]),
+                ("active", colors["text"]),
+            ],
+        )
+        style.configure(
+            "TButton",
+            background=colors["surface_alt"],
+            foreground=colors["text"],
+            bordercolor=colors["border"],
+            lightcolor=colors["surface_alt"],
+            darkcolor=colors["surface_alt"],
+            padding=(12, 8),
+        )
+        style.map(
+            "TButton",
+            background=[
+                ("active", "#ececf3"),
+                ("pressed", "#e4e5ed"),
+                ("disabled", "#eeeef2"),
+            ],
+            foreground=[("disabled", "#a4a6b0")],
+        )
+        style.configure(
+            "Accent.TButton",
+            font=(font, 10, "bold"),
+            foreground=colors["accent"],
+        )
         style.configure(
             "Observe.TButton",
-            font=("Sans", 13, "bold"),
-            padding=(16, 14),
-            foreground="#064e3b",
-            background="#a7f3d0",
+            font=(font, 12, "bold"),
+            padding=(16, 13),
+            foreground="white",
+            background=colors["safe"],
+            bordercolor=colors["safe"],
+            lightcolor=colors["safe"],
+            darkcolor=colors["safe"],
         )
         style.map(
             "Observe.TButton",
-            background=[("active", "#6ee7b7"), ("disabled", "#d1d5db")],
+            background=[
+                ("active", colors["safe_hover"]),
+                ("pressed", colors["safe_hover"]),
+                ("disabled", "#b5b7c3"),
+            ],
+            foreground=[("disabled", "#f1f1f3")],
         )
         style.configure(
             "AIStart.TButton",
-            font=("Sans", 14, "bold"),
-            padding=(16, 14),
+            font=(font, 14, "bold"),
+            padding=(18, 16),
             foreground="white",
-            background="#047857",
+            background=colors["accent"],
+            bordercolor=colors["accent"],
+            lightcolor=colors["accent"],
+            darkcolor=colors["accent"],
         )
         style.map(
             "AIStart.TButton",
-            background=[("active", "#059669"), ("disabled", "#9ca3af")],
+            background=[
+                ("active", colors["accent_hover"]),
+                ("pressed", colors["accent_hover"]),
+                ("disabled", "#b5b7c3"),
+            ],
+            foreground=[("disabled", "#f1f1f3")],
         )
         style.configure(
             "Emergency.TButton",
-            font=("Sans", 11, "bold"),
-            padding=(12, 9),
-            foreground="white",
-            background="#b91c1c",
+            font=(font, 11, "bold"),
+            padding=(12, 10),
+            foreground=colors["danger"],
+            background="#fff1f3",
+            bordercolor="#efb7c1",
+            lightcolor="#fff1f3",
+            darkcolor="#fff1f3",
         )
         style.map(
             "Emergency.TButton",
-            background=[("active", "#dc2626"), ("disabled", "#9ca3af")],
+            background=[
+                ("active", "#ffe1e7"),
+                ("pressed", "#ffd5de"),
+                ("disabled", "#eeeef2"),
+            ],
+            foreground=[("disabled", "#a4a6b0")],
         )
-        style.configure("Mode.TLabel", font=("Sans", 13, "bold"))
+        style.configure(
+            "Treeview",
+            background=colors["surface"],
+            fieldbackground=colors["surface"],
+            foreground=colors["text"],
+            bordercolor=colors["border"],
+            rowheight=28,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=colors["surface_alt"],
+            foreground=colors["muted"],
+            font=(font, 9, "bold"),
+            padding=(6, 7),
+        )
+        style.map(
+            "Treeview",
+            background=[("selected", "#f4dce3")],
+            foreground=[("selected", colors["accent_hover"])],
+        )
+        style.configure(
+            "TEntry",
+            fieldbackground=colors["surface_alt"],
+            bordercolor=colors["border"],
+            padding=(8, 6),
+        )
+        style.configure(
+            "TCombobox",
+            fieldbackground=colors["surface_alt"],
+            bordercolor=colors["border"],
+            padding=(8, 6),
+        )
+        style.configure(
+            "TCheckbutton",
+            background=colors["surface"],
+            foreground=colors["text"],
+        )
 
     def _build_ui(self):
-        header = ttk.Frame(self.root, padding=(18, 12))
+        colors = self.COLORS
+        header = tk.Frame(
+            self.root,
+            background=colors["header"],
+            padx=24,
+            pady=16,
+        )
         header.pack(fill="x")
-        ttk.Label(
+
+        tk.Label(
             header,
-            text="Touhou AI 控制中心",
-            style="Title.TLabel",
-        ).pack(side="left")
-        ttk.Label(
-            header,
-            text="游戏 · 观察 · 自动控制 · 记录 · 回放",
-            foreground="#4b5563",
-        ).pack(side="left", padx=18, pady=(8, 0))
+            text="TH",
+            background=colors["accent"],
+            foreground="white",
+            font=("DejaVu Sans", 15, "bold"),
+            padx=10,
+            pady=6,
+        ).pack(side="left", padx=(0, 14))
+
+        title_group = tk.Frame(header, background=colors["header"])
+        title_group.pack(side="left")
+        tk.Label(
+            title_group,
+            text="Touhou AI",
+            background=colors["header"],
+            foreground="white",
+            font=("DejaVu Sans", 18, "bold"),
+        ).pack(anchor="w")
+        tk.Label(
+            title_group,
+            text="Embodiment of Scarlet Devil · Observe, run and review",
+            background=colors["header"],
+            foreground="#b9bbca",
+            font=("DejaVu Sans", 9),
+        ).pack(anchor="w")
+
+        release = tk.Frame(header, background=colors["header"])
+        release.pack(side="right")
+        tk.Label(
+            release,
+            text="EXPERIMENTAL",
+            background=colors["header_soft"],
+            foreground="#f3bac8",
+            font=("DejaVu Sans", 8, "bold"),
+            padx=10,
+            pady=3,
+        ).pack(anchor="e")
+        tk.Label(
+            release,
+            text="v1.1.0 · Final experimental build",
+            background=colors["header"],
+            foreground="#b9bbca",
+            font=("DejaVu Sans", 9),
+        ).pack(anchor="e", pady=(5, 0))
 
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        self.notebook.pack(fill="both", expand=True, padx=18, pady=(8, 16))
 
-        self.control_tab = ttk.Frame(self.notebook, padding=14)
-        self.sessions_tab = ttk.Frame(self.notebook, padding=10)
-        self.logs_tab = ttk.Frame(self.notebook, padding=10)
-        self.roadmap_tab = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.control_tab, text="控制台")
-        self.notebook.add(self.sessions_tab, text="会话与回放")
-        self.notebook.add(self.logs_tab, text="实时日志")
-        self.notebook.add(self.roadmap_tab, text="项目路线")
+        self.control_tab = ttk.Frame(self.notebook, padding=12)
+        self.sessions_tab = ttk.Frame(self.notebook, padding=12)
+        self.logs_tab = ttk.Frame(self.notebook, padding=12)
+        self.tools_tab = ttk.Frame(self.notebook, padding=12)
+        self.roadmap_tab = ttk.Frame(self.notebook, padding=12)
+        self.notebook.add(self.control_tab, text="  Control  ")
+        self.notebook.add(self.sessions_tab, text="  Sessions  ")
+        self.notebook.add(self.logs_tab, text="  Live Log  ")
+        self.notebook.add(self.tools_tab, text="  Tools  ")
+        self.notebook.add(self.roadmap_tab, text="  About  ")
 
         self._build_control_tab()
         self._build_sessions_tab()
         self._build_logs_tab()
+        self._build_tools_tab()
         self._build_roadmap_tab()
+        self.notebook.select(self.control_tab)
 
     def _build_control_tab(self):
         self.control_tab.columnconfigure(0, weight=1)
         self.control_tab.columnconfigure(1, weight=1)
+        self.control_tab.rowconfigure(2, weight=1)
 
-        primary = ttk.LabelFrame(
+        primary = ttk.Frame(
             self.control_tab,
-            text="选择 AI 运行方式",
-            padding=14,
+            style="Card.TFrame",
+            padding=18,
         )
         primary.grid(
             row=0,
@@ -361,65 +607,79 @@ class TouhouControlCenter:
         primary.columnconfigure(0, weight=1)
         primary.columnconfigure(1, weight=1)
 
+        heading = ttk.Frame(primary, style="Card.TFrame")
+        heading.grid(row=0, column=0, columnspan=2, sticky="ew")
+        ttk.Label(
+            heading,
+            text="Start AI",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(side="left")
         self.mode_status_label = ttk.Label(
-            primary,
-            text="● 当前：空闲（不会发送按键）",
+            heading,
+            text="● IDLE · No input is being sent",
             style="Mode.TLabel",
-            foreground="#4b5563",
+            foreground=self.COLORS["muted"],
         )
-        self.mode_status_label.grid(
-            row=0,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(0, 10),
-        )
+        self.mode_status_label.pack(side="right")
+        ttk.Label(
+            primary,
+            text=(
+                "Both modes use the same detection and decision pipeline. "
+                "Only Control Mode sends input to the game."
+            ),
+            style="CardMuted.TLabel",
+        ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 14))
 
-        observe_card = ttk.Frame(primary, padding=8)
-        observe_card.grid(row=1, column=0, sticky="nsew", padx=(0, 7))
+        observe_card = ttk.Frame(primary, style="SoftCard.TFrame", padding=13)
+        observe_card.grid(row=2, column=0, sticky="nsew", padx=(0, 8))
         ttk.Label(
             observe_card,
-            text="安全模式",
-            style="Heading.TLabel",
-            foreground="#047857",
+            text="01  SAFE OBSERVATION",
+            style="SoftCard.TLabel",
+            font=("DejaVu Sans", 12, "bold"),
+            foreground=self.COLORS["safe"],
         ).pack(anchor="w")
         ttk.Label(
             observe_card,
             text=(
-                "运行完整AI：检测、自机/敌弹跟踪、轨迹预测和动作决策；"
-                "最后一步强制禁用所有键鼠输入。"
+                "Runs detection, tracking and action planning while keyboard "
+                "and mouse input remain disabled."
             ),
-            wraplength=470,
-            foreground="#374151",
+            style="SoftCard.TLabel",
+            wraplength=480,
+            foreground=self.COLORS["muted"],
         ).pack(anchor="w", pady=(3, 8))
         self.observe_button = ttk.Button(
             observe_card,
-            text="▶ 启动 AI 模拟观察（不按键）",
+            text="▶  Start Safe Observation",
             command=self.start_observe,
             style="Observe.TButton",
         )
         self.observe_button.pack(fill="x")
 
-        ai_card = ttk.Frame(primary, padding=8)
-        ai_card.grid(row=1, column=1, sticky="nsew", padx=(7, 0))
+        ai_card = ttk.Frame(primary, style="SoftCard.TFrame", padding=13)
+        ai_card.grid(row=2, column=1, sticky="nsew", padx=(8, 0))
         ttk.Label(
             ai_card,
-            text="控制模式",
-            style="Heading.TLabel",
-            foreground="#b45309",
+            text="02  CONTROL MODE",
+            style="SoftCard.TLabel",
+            font=("DejaVu Sans", 12, "bold"),
+            foreground=self.COLORS["accent"],
         ).pack(anchor="w")
         ttk.Label(
             ai_card,
             text=(
-                "运行同一套AI，并把稳定后的移动、射击和炸弹动作发送给"
-                "已确认获得焦点的游戏窗口。"
+                "Sends movement, fire and bomb actions to the game window. "
+                "Complete window and input checks first."
             ),
-            wraplength=470,
-            foreground="#374151",
+            style="SoftCard.TLabel",
+            wraplength=480,
+            foreground=self.COLORS["muted"],
         ).pack(anchor="w", pady=(3, 8))
         self.ai_button = ttk.Button(
             ai_card,
-            text="▶ 启动 AI 自动控制（会按键）",
+            text="▶  Start AI Control",
             command=self.start_ai,
             style="AIStart.TButton",
         )
@@ -427,22 +687,22 @@ class TouhouControlCenter:
 
         self.stop_modes_button = ttk.Button(
             primary,
-            text="■ 立即停止 AI / 模拟观察并释放按键",
+            text="■  STOP AI AND RELEASE ALL KEYS",
             command=self.stop_control_modes,
             style="Emergency.TButton",
             state="disabled",
         )
         self.stop_modes_button.grid(
-            row=2,
+            row=3,
             column=0,
             columnspan=2,
             sticky="ew",
-            pady=(12, 0),
+            pady=(14, 0),
         )
 
-        status_frame = ttk.LabelFrame(
+        status_frame = ttk.Frame(
             self.control_tab,
-            text="组件状态",
+            style="Card.TFrame",
             padding=12,
         )
         status_frame.grid(
@@ -454,154 +714,169 @@ class TouhouControlCenter:
         )
         for column, (name, label) in enumerate(
             (
-                ("game", "游戏启动"),
-                ("locate", "窗口定位"),
-                ("observe", "AI模拟观察"),
-                ("ai", "AI自动控制"),
-                ("control-test", "输入测试"),
+                ("game", "Game"),
+                ("locate", "Window"),
+                ("observe", "Observation"),
+                ("ai", "AI Control"),
+                ("control-test", "Input Test"),
             )
         ):
-            card = ttk.Frame(status_frame, padding=8)
+            card = ttk.Frame(status_frame, style="Card.TFrame", padding=7)
             card.grid(row=0, column=column, sticky="ew", padx=4)
             status_frame.columnconfigure(column, weight=1)
-            ttk.Label(card, text=label).pack()
+            ttk.Label(
+                card,
+                text=label,
+                style="CardMuted.TLabel",
+            ).pack()
             status = ttk.Label(
                 card,
-                text="● 空闲",
+                text="● Idle",
                 style="Status.TLabel",
                 foreground=self.STATUS_COLORS["idle"],
             )
             status.pack(pady=(4, 0))
             self.status_labels[name] = status
 
-        workflow = ttk.LabelFrame(
+        workflow = ttk.Frame(
             self.control_tab,
-            text="运行前准备",
+            style="Card.TFrame",
             padding=14,
         )
         workflow.grid(row=2, column=0, sticky="nsew", padx=(0, 7))
+        ttk.Label(
+            workflow,
+            text="First-run checklist",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            workflow,
+            text="Complete these three steps before enabling AI control.",
+            style="CardMuted.TLabel",
+        ).pack(anchor="w", pady=(2, 8))
 
         ttk.Button(
             workflow,
-            text="启动游戏（vpatch）",
+            text="1  Launch game (vpatch)",
             command=self.start_game,
             style="Accent.TButton",
         ).pack(fill="x", pady=4)
         ttk.Button(
             workflow,
-            text="检查窗口定位",
+            text="2  Check game window",
             command=lambda: self.start_process("locate", ["locate"]),
         ).pack(fill="x", pady=4)
         ttk.Button(
             workflow,
-            text="测试左右输入",
+            text="3  Test left / right input",
             command=lambda: self.start_process(
                 "control-test",
                 ["control-test"],
             ),
         ).pack(fill="x", pady=4)
-        ttk.Separator(workflow).pack(fill="x", pady=10)
-        ttk.Button(
-            workflow,
-            text="运行环境检查",
-            command=lambda: self.start_process("check", ["check"]),
-        ).pack(fill="x", pady=4)
-        ttk.Button(
-            workflow,
-            text="运行全部无按键测试",
-            command=lambda: self.start_process("test", ["test"]),
-        ).pack(fill="x", pady=4)
         ttk.Label(
             workflow,
             text=(
-                "推荐首次顺序：启动游戏 → 检查定位 → "
-                "AI模拟观察 → 输入测试 → AI自动控制"
+                "Tip: verify the detection result with Safe Observation "
+                "before running the input test."
             ),
             wraplength=430,
-            foreground="#4b5563",
+            style="CardMuted.TLabel",
         ).pack(anchor="w", pady=(12, 0))
 
-        config = ttk.LabelFrame(
+        config = ttk.Frame(
             self.control_tab,
-            text="检测与记录参数",
+            style="Card.TFrame",
             padding=14,
         )
         config.grid(row=2, column=1, sticky="nsew", padx=(7, 0))
         config.columnconfigure(1, weight=1)
+        config.columnconfigure(3, weight=1)
+        ttk.Label(
+            config,
+            text="Runtime settings",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).grid(row=0, column=0, columnspan=4, sticky="w")
+        ttk.Label(
+            config,
+            text="Defaults are tuned for the current Stage 1 experiment.",
+            style="CardMuted.TLabel",
+        ).grid(row=1, column=0, columnspan=4, sticky="w", pady=(2, 8))
 
-        ttk.Label(config, text="AI模式").grid(
-            row=0, column=0, sticky="w", pady=5
-        )
+        ttk.Label(
+            config,
+            text="AI profile",
+            style="Card.TLabel",
+        ).grid(row=2, column=0, sticky="w", pady=4)
         ttk.Combobox(
             config,
             textvariable=self.mode_var,
-            values=("balanced", "aggressive", "defensive"),
+            values=("defensive", "balanced", "aggressive"),
             state="readonly",
-        ).grid(row=0, column=1, sticky="ew", pady=5)
+        ).grid(
+            row=2,
+            column=1,
+            columnspan=3,
+            sticky="ew",
+            pady=4,
+            padx=(6, 0),
+        )
 
-        ttk.Label(config, text="检测置信度").grid(
-            row=1, column=0, sticky="w", pady=5
+        ttk.Label(config, text="Detection confidence", style="Card.TLabel").grid(
+            row=3, column=0, sticky="w", pady=4
         )
         ttk.Entry(config, textvariable=self.confidence_var).grid(
-            row=1, column=1, sticky="ew", pady=5
+            row=3, column=1, sticky="ew", pady=4, padx=(6, 12)
         )
-        ttk.Label(config, text="风险灵敏度").grid(
-            row=2, column=0, sticky="w", pady=5
+        ttk.Label(config, text="Risk sensitivity", style="Card.TLabel").grid(
+            row=3, column=2, sticky="w", pady=4
         )
         ttk.Entry(config, textvariable=self.sensitivity_var).grid(
-            row=2, column=1, sticky="ew", pady=5
+            row=3, column=3, sticky="ew", pady=4, padx=(6, 0)
+        )
+        ttk.Label(
+            config,
+            text="Safe margin (px)",
+            style="Card.TLabel",
+        ).grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(config, textvariable=self.safe_margin_var).grid(
+            row=4, column=1, sticky="ew", pady=4, padx=(6, 12)
+        )
+        ttk.Label(
+            config,
+            text="Lost timeout (sec)",
+            style="Card.TLabel",
+        ).grid(row=4, column=2, sticky="w", pady=4)
+        ttk.Entry(config, textvariable=self.player_lost_timeout_var).grid(
+            row=4, column=3, sticky="ew", pady=4, padx=(6, 0)
         )
         ttk.Checkbutton(
             config,
-            text="记录检测、动作和抽样画面",
+            text="Record session and sample frames",
             variable=self.record_var,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(12, 5))
-        ttk.Label(config, text="保存画面FPS").grid(
-            row=4, column=0, sticky="w", pady=5
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(7, 4))
+        ttk.Label(config, text="Recording FPS", style="Card.TLabel").grid(
+            row=5, column=2, sticky="w", pady=(7, 4)
         )
         ttk.Entry(config, textvariable=self.record_fps_var).grid(
-            row=4, column=1, sticky="ew", pady=5
+            row=5, column=3, sticky="ew", pady=(7, 4), padx=(6, 0)
         )
         ttk.Checkbutton(
             config,
-            text="观察模式显示实时预览",
+            text="Show observation preview",
             variable=self.observe_preview_var,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=5)
-        ttk.Label(config, text="边缘安全距离(px)").grid(
-            row=6, column=0, sticky="w", pady=5
-        )
-        ttk.Entry(config, textvariable=self.safe_margin_var).grid(
-            row=6, column=1, sticky="ew", pady=5
-        )
-        ttk.Label(config, text="自机漏检停控(秒)").grid(
-            row=7, column=0, sticky="w", pady=5
-        )
-        ttk.Entry(config, textvariable=self.player_lost_timeout_var).grid(
-            row=7, column=1, sticky="ew", pady=5
-        )
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=4)
         ttk.Checkbutton(
             config,
-            text="允许上下方向风险规划",
+            text="Allow vertical planning",
             variable=self.vertical_movement_var,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=5)
+        ).grid(row=6, column=2, columnspan=2, sticky="w", pady=4)
 
-        ttk.Separator(config).grid(
-            row=9, column=0, columnspan=2, sticky="ew", pady=12
-        )
-        ttk.Button(
-            config,
-            text="打开会话目录",
-            command=lambda: self.open_path(DEFAULT_SESSIONS_DIR),
-        ).grid(row=10, column=0, columnspan=2, sticky="ew", pady=4)
-        ttk.Button(
-            config,
-            text="选择标注数据集并评估模型",
-            command=self.start_model_evaluation,
-        ).grid(row=11, column=0, columnspan=2, sticky="ew", pady=4)
-
-        help_frame = ttk.LabelFrame(
+        help_frame = ttk.Frame(
             self.control_tab,
-            text="安全提示",
+            style="SoftCard.TFrame",
             padding=12,
         )
         help_frame.grid(
@@ -614,49 +889,77 @@ class TouhouControlCenter:
         ttk.Label(
             help_frame,
             text=(
-                "AI模拟观察会运行完整决策，但绝不发送按键。"
-                "AI自动控制会持续聚焦游戏窗口；想操作其他程序前，"
-                "请先点击上方红色停止按钮。"
+                "SAFETY  ·  Control Mode keeps focus on the game window. "
+                "Press STOP before switching to another application."
             ),
+            style="SoftCard.TLabel",
             wraplength=950,
-            foreground="#92400e",
+            foreground=self.COLORS["warning"],
         ).pack(anchor="w")
 
     def _build_sessions_tab(self):
-        self.sessions_tab.rowconfigure(0, weight=1)
+        self.sessions_tab.rowconfigure(1, weight=1)
         self.sessions_tab.columnconfigure(0, weight=3)
         self.sessions_tab.columnconfigure(1, weight=2)
 
-        left = ttk.Frame(self.sessions_tab)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        title = ttk.Frame(
+            self.sessions_tab,
+            style="Card.TFrame",
+            padding=(16, 12),
+        )
+        title.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            pady=(0, 12),
+        )
+        ttk.Label(
+            title,
+            text="Session Review",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(side="left")
+        ttk.Label(
+            title,
+            text="Review detection rate, collision risk, actions and frames",
+            style="CardMuted.TLabel",
+        ).pack(side="left", padx=14)
+
+        left = ttk.Frame(
+            self.sessions_tab,
+            style="Card.TFrame",
+            padding=12,
+        )
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 7))
         left.rowconfigure(1, weight=1)
         left.columnconfigure(0, weight=1)
 
-        toolbar = ttk.Frame(left)
-        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        toolbar = ttk.Frame(left, style="Card.TFrame")
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         ttk.Button(
             toolbar,
-            text="刷新",
+            text="↻ Refresh",
             command=self.refresh_sessions,
         ).pack(side="left")
         ttk.Button(
             toolbar,
-            text="生成报告",
+            text="Build Report",
             command=self.generate_current_report,
         ).pack(side="left", padx=6)
         ttk.Button(
             toolbar,
-            text="深入分析/审核清单",
+            text="Analyze",
             command=self.analyze_current_session,
         ).pack(side="left", padx=(0, 6))
         ttk.Button(
             toolbar,
-            text="导出标注候选",
+            text="Export Review Set",
             command=self.export_current_review_dataset,
         ).pack(side="left", padx=(0, 6))
         ttk.Button(
             toolbar,
-            text="打开目录",
+            text="Open Folder",
             command=self.open_current_session,
         ).pack(side="left")
 
@@ -677,18 +980,18 @@ class TouhouControlCenter:
             show="tree headings",
             selectmode="browse",
         )
-        self.session_tree.heading("#0", text="会话")
+        self.session_tree.heading("#0", text="Session")
         self.session_tree.column("#0", width=210)
         headings = {
-            "source": "来源",
-            "status": "状态",
-            "duration": "秒",
-            "events": "事件",
-            "frames": "画面",
-            "player_rate": "自机率",
-            "danger": "最高危险",
-            "risk": "碰撞风险",
-            "switches": "切向",
+            "source": "Source",
+            "status": "Status",
+            "duration": "Sec",
+            "events": "Events",
+            "frames": "Frames",
+            "player_rate": "Player",
+            "danger": "Danger",
+            "risk": "Risk",
+            "switches": "Turns",
         }
         for name in columns:
             self.session_tree.heading(name, text=headings[name])
@@ -696,36 +999,43 @@ class TouhouControlCenter:
         self.session_tree.grid(row=1, column=0, sticky="nsew")
         self.session_tree.bind("<<TreeviewSelect>>", self.on_session_select)
 
-        right = ttk.Frame(self.sessions_tab)
-        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        right = ttk.Frame(
+            self.sessions_tab,
+            style="Card.TFrame",
+            padding=12,
+        )
+        right.grid(row=1, column=1, sticky="nsew", padx=(7, 0))
         right.rowconfigure(1, weight=3)
         right.rowconfigure(3, weight=2)
         right.columnconfigure(0, weight=1)
 
         ttk.Label(
             right,
-            text="抽样帧回放",
-            style="Heading.TLabel",
+            text="Sample Frame Review",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 12, "bold"),
         ).grid(row=0, column=0, sticky="w")
         self.frame_label = ttk.Label(
             right,
-            text="选择一个会话",
+            text="Select a session to begin",
             anchor="center",
+            style="SoftCard.TLabel",
         )
         self.frame_label.grid(row=1, column=0, sticky="nsew", pady=6)
 
-        navigation = ttk.Frame(right)
+        navigation = ttk.Frame(right, style="Card.TFrame")
         navigation.grid(row=2, column=0, sticky="ew")
         ttk.Button(
             navigation,
-            text="◀ 上一帧",
+            text="◀ Previous",
             command=lambda: self.change_frame(-1),
         ).pack(side="left")
         self.frame_counter = ttk.Label(navigation, text="0 / 0")
+        self.frame_counter.configure(style="CardMuted.TLabel")
         self.frame_counter.pack(side="left", expand=True)
         ttk.Button(
             navigation,
-            text="下一帧 ▶",
+            text="Next ▶",
             command=lambda: self.change_frame(1),
         ).pack(side="right")
 
@@ -734,41 +1044,214 @@ class TouhouControlCenter:
             height=12,
             wrap="word",
             font=("Monospace", 9),
+            background=self.COLORS["surface_alt"],
+            foreground=self.COLORS["text"],
+            insertbackground=self.COLORS["text"],
+            relief="flat",
+            borderwidth=1,
+            padx=10,
+            pady=10,
         )
         self.session_details.grid(row=3, column=0, sticky="nsew", pady=(8, 0))
 
     def _build_logs_tab(self):
-        toolbar = ttk.Frame(self.logs_tab)
-        toolbar.pack(fill="x", pady=(0, 6))
+        toolbar = ttk.Frame(
+            self.logs_tab,
+            style="Card.TFrame",
+            padding=(16, 10),
+        )
+        toolbar.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            toolbar,
+            text="Live Log",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(side="left")
+        ttk.Label(
+            toolbar,
+            text="Commands, runtime status and errors appear here",
+            style="CardMuted.TLabel",
+        ).pack(side="left", padx=14)
         ttk.Button(
             toolbar,
-            text="清空日志",
+            text="Clear Log",
             command=lambda: self.log_text.delete("1.0", "end"),
-        ).pack(side="left")
+        ).pack(side="right")
         self.log_text = scrolledtext.ScrolledText(
             self.logs_tab,
             wrap="word",
             font=("Monospace", 10),
-            bg="#111827",
-            fg="#e5e7eb",
+            bg="#191a26",
+            fg="#e8e8ef",
             insertbackground="white",
+            relief="flat",
+            padx=14,
+            pady=12,
         )
         self.log_text.pack(fill="both", expand=True)
-        self.log_text.tag_configure("system", foreground="#93c5fd")
-        self.log_text.tag_configure("error", foreground="#fca5a5")
+        self.log_text.tag_configure("system", foreground="#9ca9ef")
+        self.log_text.tag_configure("error", foreground="#ff9caf")
+
+    def _build_tools_tab(self):
+        self.tools_tab.columnconfigure(0, weight=1)
+        self.tools_tab.columnconfigure(1, weight=1)
+
+        header = ttk.Frame(
+            self.tools_tab,
+            style="Card.TFrame",
+            padding=(16, 12),
+        )
+        header.grid(
+            row=0,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            pady=(0, 12),
+        )
+        ttk.Label(
+            header,
+            text="Maintenance Tools",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(side="left")
+        ttk.Label(
+            header,
+            text="Diagnostics and dataset utilities for this experimental build",
+            style="CardMuted.TLabel",
+        ).pack(side="left", padx=14)
+
+        diagnostics = ttk.Frame(
+            self.tools_tab,
+            style="Card.TFrame",
+            padding=18,
+        )
+        diagnostics.grid(row=1, column=0, sticky="nsew", padx=(0, 7))
+        ttk.Label(
+            diagnostics,
+            text="Diagnostics",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 13, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            diagnostics,
+            text=(
+                "Check dependencies and run the complete test suite. "
+                "Neither action sends input to the game."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=480,
+        ).pack(anchor="w", pady=(3, 14))
+        ttk.Button(
+            diagnostics,
+            text="Run Environment Check",
+            command=lambda: self.start_process("check", ["check"]),
+            style="Accent.TButton",
+        ).pack(fill="x", pady=5)
+        ttk.Button(
+            diagnostics,
+            text="Run All Tests (No Input)",
+            command=lambda: self.start_process("test", ["test"]),
+        ).pack(fill="x", pady=5)
+
+        data_tools = ttk.Frame(
+            self.tools_tab,
+            style="Card.TFrame",
+            padding=18,
+        )
+        data_tools.grid(row=1, column=1, sticky="nsew", padx=(7, 0))
+        ttk.Label(
+            data_tools,
+            text="Recordings & Model",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 13, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            data_tools,
+            text=(
+                "Open local session data or evaluate the bundled YOLO model "
+                "against a reviewed data.yaml validation set."
+            ),
+            style="CardMuted.TLabel",
+            wraplength=480,
+        ).pack(anchor="w", pady=(3, 14))
+        ttk.Button(
+            data_tools,
+            text="Open Recordings Folder",
+            command=lambda: self.open_path(DEFAULT_SESSIONS_DIR),
+            style="Accent.TButton",
+        ).pack(fill="x", pady=5)
+        ttk.Button(
+            data_tools,
+            text="Select Dataset and Evaluate Model",
+            command=self.start_model_evaluation,
+        ).pack(fill="x", pady=5)
 
     def _build_roadmap_tab(self):
+        header = ttk.Frame(
+            self.roadmap_tab,
+            style="Card.TFrame",
+            padding=(16, 12),
+        )
+        header.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            header,
+            text="About This Build",
+            style="Card.TLabel",
+            font=("DejaVu Sans", 14, "bold"),
+        ).pack(side="left")
+        ttk.Label(
+            header,
+            text="The control algorithm is frozen; this build focuses on a clean release.",
+            style="CardMuted.TLabel",
+        ).pack(side="left", padx=14)
         text = scrolledtext.ScrolledText(
             self.roadmap_tab,
             wrap="word",
-            font=("Sans", 10),
+            font=("DejaVu Sans", 10),
+            background=self.COLORS["surface"],
+            foreground=self.COLORS["text"],
+            selectbackground="#f4dce3",
+            selectforeground=self.COLORS["accent_hover"],
+            relief="flat",
+            padx=22,
+            pady=18,
+            spacing1=2,
+            spacing3=4,
         )
         text.pack(fill="both", expand=True)
-        roadmap_path = PROJECT_DIR / "docs" / "ROADMAP.md"
-        try:
-            content = roadmap_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            content = f"无法读取路线文档：{exc}"
+        content = """TOUHOU AI  ·  v1.1.0 EXPERIMENTAL
+
+PURPOSE
+An unofficial computer-vision and rule-based control experiment for
+Touhou Koumakyou: the Embodiment of Scarlet Devil.
+
+CURRENT CAPABILITIES
+• Launch and locate the game window on Linux X11
+• Detect the player, bullets, enemies, bosses and items with YOLO
+• Track short player dropouts and estimate bullet trajectories
+• Plan eight-direction movement with edge and collision protection
+• Run the full AI safely without sending any keyboard input
+• Record sessions, inspect sample frames and export review candidates
+
+PROJECT STATUS
+The end-to-end workflow is operational and the AI can reach the first boss
+in the current test setup. It is not a reliable stage-clear or game-clear
+system. Dense spell-card patterns, lasers and imperfect detections remain
+known limitations.
+
+This is the final experimental baseline. Future work would require a new,
+carefully reviewed dataset and a substantially different control approach,
+not more parameter tuning.
+
+SAFETY
+Control Mode focuses the game window and sends real keyboard events.
+Always stop the AI before using another application.
+
+LEGAL
+This is an unofficial fan-made technical experiment. It is not affiliated
+with, endorsed by, or sponsored by Team Shanghai Alice, ZUN, or the Touhou
+Project. The game itself is not included.
+"""
         text.insert("1.0", content)
         text.configure(state="disabled")
 
@@ -783,21 +1266,33 @@ class TouhouControlCenter:
             player_lost_timeout = float(self.player_lost_timeout_var.get())
         except ValueError:
             messagebox.showerror(
-                "参数错误",
-                "置信度、敏感度、FPS、安全距离和停控时间必须是数字",
+                "Invalid settings",
+                "Confidence, sensitivity, FPS, margin and timeout must be numeric.",
             )
             return None
         if not 0 <= confidence <= 1 or not 0 <= sensitivity <= 1:
-            messagebox.showerror("参数错误", "置信度和敏感度必须在0到1之间")
+            messagebox.showerror(
+                "Invalid settings",
+                "Confidence and sensitivity must be between 0 and 1.",
+            )
             return None
         if not 0 <= record_fps <= 20:
-            messagebox.showerror("参数错误", "记录FPS必须在0到20之间")
+            messagebox.showerror(
+                "Invalid settings",
+                "Recording FPS must be between 0 and 20.",
+            )
             return None
         if not 8 <= safe_margin <= 160:
-            messagebox.showerror("参数错误", "边缘安全距离必须在8到160像素之间")
+            messagebox.showerror(
+                "Invalid settings",
+                "Safe edge margin must be between 8 and 160 pixels.",
+            )
             return None
         if not 0.35 <= player_lost_timeout <= 3:
-            messagebox.showerror("参数错误", "自机漏检停控时间必须在0.35到3秒之间")
+            messagebox.showerror(
+                "Invalid settings",
+                "Player-lost timeout must be between 0.35 and 3 seconds.",
+            )
             return None
         return (
             self.mode_var.get(),
@@ -831,8 +1326,8 @@ class TouhouControlCenter:
             stopped = self.process_manager.stop(name) or stopped
         if stopped:
             self.mode_status_label.configure(
-                text="● 当前：正在安全停止并释放按键…",
-                foreground="#b45309",
+                text="● STOPPING · Releasing input…",
+                foreground=self.COLORS["warning"],
             )
         else:
             self.update_mode_banner()
@@ -842,24 +1337,24 @@ class TouhouControlCenter:
         observe_running = self.process_states.get("observe") == "running"
         if ai_running:
             self.mode_status_label.configure(
-                text="● 当前：AI自动控制中（正在向游戏发送按键）",
-                foreground="#b91c1c",
+                text="● CONTROL ACTIVE · Sending input to the game",
+                foreground=self.COLORS["danger"],
             )
             self.ai_button.configure(state="disabled")
             self.observe_button.configure(state="disabled")
             self.stop_modes_button.configure(state="normal")
         elif observe_running:
             self.mode_status_label.configure(
-                text="● 当前：AI模拟观察中（完整AI运行，不发送任何按键）",
-                foreground="#047857",
+                text="● OBSERVING · AI is running without input",
+                foreground=self.COLORS["safe"],
             )
             self.ai_button.configure(state="normal")
             self.observe_button.configure(state="disabled")
             self.stop_modes_button.configure(state="normal")
         else:
             self.mode_status_label.configure(
-                text="● 当前：空闲（不会发送按键）",
-                foreground="#4b5563",
+                text="● IDLE · No input is being sent",
+                foreground=self.COLORS["muted"],
             )
             self.ai_button.configure(state="normal")
             self.observe_button.configure(state="normal")
@@ -876,17 +1371,17 @@ class TouhouControlCenter:
             )
         ):
             messagebox.showerror(
-                "缺少游戏文件",
-                "发布包不包含游戏本体。请先按照 game/README.md "
-                "将合法取得的游戏文件放入 game/。",
+                "Game files not found",
+                "The game is not included. Follow game/README.md and copy "
+                "your legally obtained game files into the game folder.",
             )
             return
         self.start_process("game", ["game"])
 
     def start_model_evaluation(self):
         data_yaml = filedialog.askopenfilename(
-            title="选择YOLO数据集data.yaml",
-            filetypes=(("YAML", "*.yaml *.yml"), ("所有文件", "*")),
+            title="Select YOLO dataset data.yaml",
+            filetypes=(("YAML", "*.yaml *.yml"), ("All files", "*")),
         )
         if data_yaml:
             self.start_process(
@@ -935,8 +1430,9 @@ class TouhouControlCenter:
         self.save_settings()
         if self.process_manager.is_running("observe"):
             if not messagebox.askyesno(
-                "停止观察",
-                "观察窗口可能遮挡游戏画面。是否先停止观察再启动AI？",
+                "Stop observation?",
+                "The observation preview may cover the game. Stop observation "
+                "before starting AI Control?",
             ):
                 return
             self.process_manager.stop("observe")
@@ -966,7 +1462,11 @@ class TouhouControlCenter:
 
     def append_log(self, name: str, line: str):
         prefix = f"[{name}] "
-        tag = "error" if "❌" in line or "失败" in line else "system"
+        tag = (
+            "error"
+            if "❌" in line or "失败" in line or "error" in line.lower()
+            else "system"
+        )
         self.log_text.insert("end", prefix, tag)
         self.log_text.insert("end", line)
         self.log_text.see("end")
@@ -976,11 +1476,11 @@ class TouhouControlCenter:
         label = self.status_labels.get(name)
         if label:
             display = {
-                "idle": "● 空闲",
-                "running": "● 运行中",
-                "completed": "● 已完成",
-                "stopped": "● 已停止",
-                "failed": "● 失败",
+                "idle": "● Idle",
+                "running": "● Running",
+                "completed": "● Complete",
+                "stopped": "● Stopped",
+                "failed": "● Failed",
             }.get(state, state)
             label.configure(
                 text=display,
@@ -1058,14 +1558,14 @@ class TouhouControlCenter:
     def show_current_frame(self):
         if not self.current_frames:
             self.preview_photo = None
-            self.frame_label.configure(image="", text="该会话没有保存画面")
+            self.frame_label.configure(image="", text="No saved frames in this session")
             self.frame_counter.configure(text="0 / 0")
             return
         path, event = self.current_frames[self.current_frame_index]
         try:
             image = Image.open(path).convert("RGB")
         except OSError as exc:
-            self.frame_label.configure(image="", text=f"无法读取画面: {exc}")
+            self.frame_label.configure(image="", text=f"Could not read frame: {exc}")
             return
 
         draw = ImageDraw.Draw(image)
@@ -1132,54 +1632,54 @@ class TouhouControlCenter:
 
     def generate_current_report(self):
         if not self.current_session_dir:
-            messagebox.showinfo("会话报告", "请先选择一个会话")
+            messagebox.showinfo("Session report", "Select a session first.")
             return
         try:
             json_path, markdown_path = write_report(self.current_session_dir)
         except Exception as exc:
-            messagebox.showerror("报告失败", str(exc))
+            messagebox.showerror("Report failed", str(exc))
             return
         messagebox.showinfo(
-            "报告完成",
-            f"已生成：\n{json_path}\n{markdown_path}",
+            "Report complete",
+            f"Created:\n{json_path}\n{markdown_path}",
         )
 
     def analyze_current_session(self):
         if not self.current_session_dir:
-            messagebox.showinfo("会话分析", "请先选择一个会话")
+            messagebox.showinfo("Session analysis", "Select a session first.")
             return
         try:
             json_path, markdown_path, review_path = write_analysis(
                 self.current_session_dir
             )
         except (OSError, ValueError) as exc:
-            messagebox.showerror("分析失败", str(exc))
+            messagebox.showerror("Analysis failed", str(exc))
             return
         self.append_log(
             "analysis",
             (
-                f"已生成 {json_path.name}、{markdown_path.name}、"
+                f"Created {json_path.name}, {markdown_path.name} and "
                 f"{review_path.name}\n"
             ),
         )
         messagebox.showinfo(
-            "分析完成",
-            f"已生成：\n{json_path}\n{markdown_path}\n{review_path}",
+            "Analysis complete",
+            f"Created:\n{json_path}\n{markdown_path}\n{review_path}",
         )
 
     def export_current_review_dataset(self):
         if not self.current_session_dir:
-            messagebox.showinfo("标注候选", "请先选择一个会话")
+            messagebox.showinfo("Review candidates", "Select a session first.")
             return
         try:
             output_dir = export_review_dataset(self.current_session_dir)
         except (OSError, ValueError) as exc:
-            messagebox.showerror("导出失败", str(exc))
+            messagebox.showerror("Export failed", str(exc))
             return
-        self.append_log("analysis", f"标注候选已导出: {output_dir}\n")
+        self.append_log("analysis", f"Review candidates exported: {output_dir}\n")
         messagebox.showinfo(
-            "导出完成",
-            "预标注来自模型预测，必须人工检查后才能用于训练或评估。\n"
+            "Export complete",
+            "Predicted labels must be reviewed manually before training or evaluation.\n"
             f"{output_dir}",
         )
 
@@ -1192,11 +1692,11 @@ class TouhouControlCenter:
                 stderr=subprocess.DEVNULL,
             )
         except OSError as exc:
-            messagebox.showerror("无法打开目录", str(exc))
+            messagebox.showerror("Could not open folder", str(exc))
 
     def open_current_session(self):
         if not self.current_session_dir:
-            messagebox.showinfo("打开目录", "请先选择一个会话")
+            messagebox.showinfo("Open folder", "Select a session first.")
             return
         self.open_path(self.current_session_dir)
 
@@ -1207,8 +1707,8 @@ class TouhouControlCenter:
             if self.process_manager.is_running(name)
         ]
         if active and not messagebox.askyesno(
-            "退出",
-            f"仍在运行：{', '.join(active)}。\n是否安全停止并退出？",
+            "Exit Touhou AI?",
+            f"Still running: {', '.join(active)}.\nStop safely and exit?",
         ):
             return
         self.save_settings()
@@ -1216,8 +1716,8 @@ class TouhouControlCenter:
         self.root.after(700, self.root.destroy)
 
     def run(self):
-        self.append_log("GUI", f"项目目录: {ROOT}\n")
-        self.append_log("GUI", "统一桌面控制台已就绪。\n")
+        self.append_log("GUI", f"Project directory: {ROOT}\n")
+        self.append_log("GUI", "Control Center is ready.\n")
         self.root.mainloop()
 
 
@@ -1229,7 +1729,7 @@ def main() -> int:
     except KeyboardInterrupt:
         return 130
     except tk.TclError as exc:
-        print(f"❌ 无法启动桌面GUI: {exc}")
+        print(f"❌ Could not start desktop GUI: {exc}")
         return 1
 
 

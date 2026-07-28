@@ -174,7 +174,7 @@ def build_parser() -> argparse.ArgumentParser:
     observe_parser.add_argument(
         "--mode",
         choices=("balanced", "aggressive", "defensive"),
-        default="balanced",
+        default="defensive",
     )
     observe_parser.add_argument("--confidence", type=float, default=0.35)
     observe_parser.add_argument("--sensitivity", type=float, default=0.05)
@@ -196,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     ai_parser.add_argument(
         "--mode",
         choices=("balanced", "aggressive", "defensive"),
-        default="balanced",
+        default="defensive",
     )
     ai_parser.add_argument("--confidence", type=float, default=0.15)
     ai_parser.add_argument("--sensitivity", type=float, default=0.05)
