@@ -47,6 +47,7 @@ class ReleaseLayoutTests(unittest.TestCase):
             "README.md",
             "VERSION",
             "requirements.txt",
+            "inference_device.py",
             "control_logic.py",
             "session_analysis.py",
             "model_evaluation.py",

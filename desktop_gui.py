@@ -210,7 +210,7 @@ class TouhouControlCenter:
         settings = self.load_settings()
         self.mode_var = tk.StringVar(value=settings.get("mode", "balanced"))
         self.confidence_var = tk.StringVar(
-            value=str(settings.get("confidence", "0.35"))
+            value=str(settings.get("confidence", "0.15"))
         )
         self.sensitivity_var = tk.StringVar(
             value=str(settings.get("sensitivity", "0.05"))

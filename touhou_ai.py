@@ -62,6 +62,22 @@ def run_check() -> int:
         print(f"  {'OK' if ok else '缺失':<4} {name}")
         failed = failed or not ok
 
+    if module_available("torch"):
+        try:
+            import torch
+
+            from inference_device import select_inference_device
+
+            inference_device = select_inference_device(torch)
+            print(
+                f"\nYOLO推理设备: {inference_device.label}"
+            )
+            if inference_device.reason:
+                print(f"  说明: {inference_device.reason}")
+        except Exception as exc:
+            print(f"\nYOLO推理设备: 无法检查（{exc}）")
+            failed = True
+
     print("\n外部环境：")
     wine_available = shutil.which("wine") is not None
     xdotool_available = shutil.which("xdotool") is not None

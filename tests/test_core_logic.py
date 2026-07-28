@@ -7,6 +7,8 @@ import sys
 import types
 import unittest
 
+import numpy as np
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_DIR = ROOT
@@ -48,6 +50,67 @@ class AnalyzeGameStateTests(unittest.TestCase):
         self.assertEqual(len(state["player_bullets"]), 1)
         self.assertEqual(len(state["enemies"]), 1)
         self.assertEqual(len(state["powerups"]), 1)
+
+    def test_detection_passes_selected_device_and_user_confidence(self) -> None:
+        class FakeModel:
+            names = {}
+
+            def __init__(self):
+                self.calls = []
+
+            def predict(self, image, **kwargs):
+                self.calls.append((image, kwargs))
+                return []
+
+        ai = TouhouAIController.__new__(TouhouAIController)
+        ai.model = FakeModel()
+        ai.inference_device = "cpu"
+        ai.confidence_threshold = 0.12
+        ai.stats = {"detections": 0}
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+        self.assertEqual(ai.detect_objects(frame), [])
+        _, kwargs = ai.model.calls[0]
+        self.assertEqual(kwargs["device"], "cpu")
+        self.assertEqual(kwargs["conf"], 0.03)
+
+    def test_bottom_red_sprite_recovers_misclassified_reimu(self) -> None:
+        detections = [
+            {
+                "class_name": "character",
+                "center_x": 205,
+                "center_y": 280,
+                "width": 20,
+                "height": 24,
+                "confidence": 0.92,
+            },
+            {
+                "class_name": "enemy_small_red",
+                "center_x": 225,
+                "center_y": 405,
+                "width": 19,
+                "height": 22,
+                "confidence": 0.04,
+            },
+            {
+                "class_name": "enemy_small_red",
+                "center_x": 90,
+                "center_y": 100,
+                "width": 20,
+                "height": 22,
+                "confidence": 0.85,
+            },
+        ]
+
+        state = self.ai.analyze_game_state(detections)
+
+        self.assertEqual(state["player_x"], 225)
+        self.assertEqual(state["player_y"], 405)
+        self.assertEqual(
+            state["player"]["player_detection_source"],
+            "red_sprite_fallback",
+        )
+        self.assertEqual(len(state["enemies"]), 1)
 
     def test_danger_is_measured_from_detected_player(self) -> None:
         detections = [

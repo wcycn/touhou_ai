@@ -113,7 +113,9 @@ COLORS = {
 
 def detection_group(class_name: str) -> str:
     name = class_name.casefold()
-    if name == "character" or ("player" in name and "bullet" not in name):
+    if name.startswith("character") or (
+        "player" in name and "bullet" not in name
+    ):
         return "player"
     if "bullet_player" in name:
         return "player_bullet"

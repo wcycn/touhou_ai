@@ -41,6 +41,11 @@ from control_logic import (
     RiskPlanner,
     collision_metrics,
 )
+from inference_device import select_inference_device
+
+PLAYER_FALLBACK_CONFIDENCE = 0.03
+PLAYER_FALLBACK_MIN_Y_RATIO = 0.68
+PLAYER_FALLBACK_MAX_X_RATIO = 0.70
 
 # YOLO推理由Ultralytics/PyTorch负责。
 try:
@@ -54,9 +59,14 @@ try:
             "runs_dir": str(project_dir / "runs"),
         }
     )
+    INFERENCE_DEVICE = select_inference_device(torch)
     print("✅ YOLO模型库加载成功")
-    device = "CUDA" if torch.cuda.is_available() else "CPU"
-    print(f"✅ PyTorch版本: {torch.__version__} (YOLO后端，设备: {device})")
+    print(
+        f"✅ PyTorch版本: {torch.__version__} "
+        f"(YOLO后端，设备: {INFERENCE_DEVICE.label})"
+    )
+    if INFERENCE_DEVICE.reason:
+        print(f"⚠️ CUDA未启用，自动回退CPU: {INFERENCE_DEVICE.reason}")
 
 except ImportError as e:
     print(f"❌ 必要库导入失败: {e}")
@@ -164,6 +174,7 @@ class TouhouAIController:
             self.window_controller = None
 
         self.model = None
+        self.inference_device = INFERENCE_DEVICE.value
         self.last_detection_time = 0
 
         # 线程锁
@@ -454,8 +465,35 @@ class TouhouAIController:
 
         try:
             if self.model is not None:
-                # 使用YOLO进行检测
-                results = self.model(image, verbose=False)
+                # 显式传入阈值和设备，避免 Ultralytics 自动选择到不兼容的 CUDA，
+                # 也避免其默认 conf=0.25 吞掉用户要求的低置信度结果。
+                try:
+                    results = self.model.predict(
+                        image,
+                        verbose=False,
+                        conf=min(
+                            self.confidence_threshold,
+                            PLAYER_FALLBACK_CONFIDENCE,
+                        ),
+                        device=self.inference_device,
+                    )
+                except Exception as inference_error:
+                    if self.inference_device == "cpu":
+                        raise
+                    print(
+                        "⚠️ CUDA推理失败，当前会话自动切换到CPU: "
+                        f"{inference_error}"
+                    )
+                    self.inference_device = "cpu"
+                    results = self.model.predict(
+                        image,
+                        verbose=False,
+                        conf=min(
+                            self.confidence_threshold,
+                            PLAYER_FALLBACK_CONFIDENCE,
+                        ),
+                        device="cpu",
+                    )
                 detections = []
 
                 for result in results:
@@ -482,22 +520,52 @@ class TouhouAIController:
                                         conf = float(box.conf[0])
                                         cls = int(box.cls[0])
 
-                                if conf < self.confidence_threshold:
+                                class_name = (
+                                    self.model.names[cls]
+                                    if hasattr(self.model, 'names')
+                                    else f"object_{cls}"
+                                )
+                                center_x = int((x1 + x2) / 2)
+                                center_y = int((y1 + y2) / 2)
+                                box_width = int(x2 - x1)
+                                box_height = int(y2 - y1)
+                                image_height, image_width = image.shape[:2]
+                                fallback_candidate = (
+                                    class_name == "enemy_small_red"
+                                    and float(conf)
+                                    >= PLAYER_FALLBACK_CONFIDENCE
+                                    and center_y
+                                    >= image_height * PLAYER_FALLBACK_MIN_Y_RATIO
+                                    and center_x
+                                    <= image_width * PLAYER_FALLBACK_MAX_X_RATIO
+                                    and 6 <= box_width <= 45
+                                    and 6 <= box_height <= 45
+                                )
+                                if (
+                                    conf < self.confidence_threshold
+                                    and not fallback_candidate
+                                ):
                                     continue
-
-                                class_name = self.model.names[cls] if hasattr(self.model, 'names') else f"object_{cls}"
 
                                 detection = {
                                     'bbox': [x1, y1, x2, y2],
                                     'x': int(x1),
                                     'y': int(y1),
-                                    'center_x': int((x1 + x2) / 2),
-                                    'center_y': int((y1 + y2) / 2),
-                                    'width': int(x2 - x1),
-                                    'height': int(y2 - y1),
+                                    'center_x': center_x,
+                                    'center_y': center_y,
+                                    'width': box_width,
+                                    'height': box_height,
                                     'confidence': float(conf),
                                     'class_id': cls,
-                                    'class_name': class_name
+                                    'class_name': (
+                                        "character_fallback"
+                                        if fallback_candidate
+                                        else class_name
+                                    ),
+                                    'model_class_name': class_name,
+                                    'player_fallback_candidate': (
+                                        fallback_candidate
+                                    ),
                                 }
                                 detections.append(detection)
 
@@ -545,6 +613,7 @@ class TouhouAIController:
         player_bullets = []
         enemies = []
         players = []
+        fallback_players = []
         powerups = []
 
         width = self.screen_region["width"] if self.screen_region else 640
@@ -553,7 +622,17 @@ class TouhouAIController:
 
         for detection in detections:
             class_name = str(detection.get("class_name", "")).lower()
-            if class_name == "character" or (
+            if detection.get("player_fallback_candidate") or (
+                class_name == "enemy_small_red"
+                and float(detection.get("center_y", 0))
+                >= height * PLAYER_FALLBACK_MIN_Y_RATIO
+                and float(detection.get("center_x", width))
+                <= width * PLAYER_FALLBACK_MAX_X_RATIO
+                and 6 <= float(detection.get("width", 0)) <= 45
+                and 6 <= float(detection.get("height", 0)) <= 45
+            ):
+                fallback_players.append(detection)
+            elif class_name == "character" or (
                 "player" in class_name and "bullet" not in class_name
             ):
                 players.append(detection)
@@ -566,11 +645,36 @@ class TouhouAIController:
             elif "power" in class_name or "item" in class_name:
                 powerups.append(detection)
 
+        plausible_players = [
+            candidate
+            for candidate in players
+            if float(candidate.get("center_y", 0)) >= height * 0.62
+        ]
         player = max(
-            players,
+            plausible_players,
             key=lambda item: float(item.get("confidence", 0.0)),
             default=None,
         )
+        fallback_player = max(
+            fallback_players,
+            key=lambda item: (
+                float(item.get("confidence", 0.0)),
+                float(item.get("height", 0.0)),
+            ),
+            default=None,
+        )
+        if fallback_player is not None and (
+            player is None
+            or float(fallback_player["center_y"])
+            > float(player["center_y"]) + height * 0.08
+        ):
+            player = dict(fallback_player)
+            player.setdefault("model_class_name", player.get("class_name"))
+            player["class_name"] = "character_fallback"
+            player["player_detection_source"] = "red_sprite_fallback"
+        elif player is not None:
+            player = dict(player)
+            player["player_detection_source"] = "model_character"
         player_track = self.player_tracker.update(
             player,
             width,
