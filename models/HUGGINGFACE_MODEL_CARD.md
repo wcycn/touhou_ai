@@ -20,6 +20,14 @@ project for *Touhou Koumakyou: the Embodiment of Scarlet Devil*.
 This is a fan-made technical experiment. It is not affiliated with, endorsed
 by, or sponsored by Team Shanghai Alice, ZUN, or the Touhou Project.
 
+## Demo
+
+[![Touhou AI detection, tracking and control demo](https://raw.githubusercontent.com/wcycn/touhou_ai/main/docs/assets/touhou-ai-demo.gif)](https://github.com/wcycn/touhou_ai)
+
+The overlay is reconstructed from a recorded AI Control session and shows
+detections, tracked bullet trajectories, collision risk, planned movement, and
+the keys held by the controller.
+
 ## Model details
 
 - Task: object detection
