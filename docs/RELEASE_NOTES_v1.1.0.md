@@ -3,6 +3,8 @@
 这是 Touhou AI 的首个公开实验版本。项目已经完成从游戏窗口截图、YOLO 目标检测、
 风险规划到实际键盘控制的完整闭环，并提供无需命令行的桌面控制中心。
 
+![Touhou AI detection, tracking and control demo](https://raw.githubusercontent.com/wcycn/touhou_ai/main/docs/assets/touhou-ai-demo.gif)
+
 > Touhou AI 是非官方二次创作技术实验，与上海爱丽丝幻乐团、ZUN 或东方 Project
 > 官方无关。发行版不包含游戏本体。
 

@@ -30,6 +30,18 @@ Touhou AI 从游戏窗口实时截图，使用 YOLO 识别自机、敌弹、敌�
 > 这是非官方的二次创作技术实验，与上海爱丽丝幻乐团、ZUN 或东方 Project
 > 官方无关，也未获得其认可或赞助。仓库不提供游戏本体。
 
+<p align="center">
+  <img
+    src="docs/assets/touhou-ai-demo.gif"
+    alt="Touhou AI detection, tracking and control demo"
+    width="640"
+  >
+</p>
+
+<p align="center">
+  <em>真实 AI Control 会话回放：检测框、弹道预测、碰撞风险与执行动作。</em>
+</p>
+
 ## 亮点
 
 | | 功能 | 说明 |
