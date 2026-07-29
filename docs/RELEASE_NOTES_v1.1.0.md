@@ -1,7 +1,7 @@
 # Touhou AI v1.1.0 — First Public Experimental Release
 
-这是 Touhou AI 的首个公开实验版本。项目已经完成从游戏窗口截图、YOLO 目标检测、
-风险规划到实际键盘控制的完整闭环，并提供无需命令行的桌面控制中心。
+这是 Touhou AI 的首个公开实验版本。项目已经串联游戏窗口截图、YOLO 目标检测、
+规则规划和键盘输入，并提供无需命令行的桌面控制中心。
 
 ![Touhou AI detection, tracking and control demo](https://raw.githubusercontent.com/wcycn/touhou_ai/main/docs/assets/touhou-ai-demo.gif)
 
@@ -15,7 +15,7 @@
 - 跟踪自机短时漏检与敌弹运动，估计轨迹、碰撞风险和 TTC
 - 比较八方向候选路径，执行移动、射击和有限的自动 Bomb
 - 窗口失焦、自机丢失或场景不确定时立即释放全部按键
-- Safe Observation 运行完整 AI 判断，但从输入层禁止键盘和鼠标事件
+- Safe Observation 运行相同的检测、跟踪和规划流程，但禁止键盘和鼠标事件
 - 统一桌面 GUI 集成启动、观察、控制、诊断、会话复盘和模型工具
 - 保存结构化会话记录、抽样画面、质量报告和人工审核候选
 
@@ -55,9 +55,9 @@ python3 touhou_ai.py gui
 
 ## 当前能力
 
-在当前测试环境中，AI 可以完成基本战斗、持续射击、回到场地中部、收集部分
-Power 道具，并坚持到第一面 Boss。该结果代表实验闭环已经可运行，不代表能够
-稳定通过第一关或自动通关。
+在当前测试环境中，控制器曾完成基本移动和射击、回到场地中部、收集部分 Power
+道具，并运行到第一面 Boss。这只说明各模块可以连续工作；当前版本不能稳定完成
+第一关。
 
 ## 已知限制
 
