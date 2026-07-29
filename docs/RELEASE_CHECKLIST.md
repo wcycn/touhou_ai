@@ -2,15 +2,17 @@
 
 ## 必须确认
 
-- [ ] 决定项目许可证，并确认每个源码文件都可以按该许可证发布
-- [ ] 确认 `models/best.pt` 的来源、训练数据许可和权重再分发权
-- [ ] 确认 Git 历史中没有游戏文件、API密钥、密码或个人路径
-- [ ] 确认发布包中没有 `game/` 下的商业游戏资源
-- [ ] 确认发布包中没有 `sessions/`、`runs/`、Wine前缀和用户截图
+- [x] 源代码与 Hugging Face 模型权重采用 GNU AGPL v3.0
+- [x] 确认 `models/best.pt` 由项目作者使用自行整理和标注的数据训练
+- [x] 将模型权重与模型卡发布到 `wcycn/touhou-ai-yolo`
+- [x] 从 Hugging Face 回下载权重并核对 SHA-256
+- [x] 确认 Git 历史中没有游戏文件、API密钥、密码或个人路径
+- [x] 确认 Git 只跟踪 `game/README.md` 与 `game/.gitkeep`
+- [x] 确认 `sessions/`、`runs/`、设置、Wine前缀和用户截图未被跟踪
 - [ ] 在一台干净的 Linux/X11 机器上按 README 完成安装
 - [ ] 运行 `python touhou_ai.py check`
-- [ ] 运行 `python touhou_ai.py test`
-- [ ] 依次验证 GUI 的定位、观察、输入测试、AI启停和会话回放
+- [x] 运行 `python touhou_ai.py test`（58项通过）
+- [x] 依次验证 GUI 的定位、观察、输入测试、AI启停和会话回放
 
 ## 推荐补齐
 
@@ -22,6 +24,5 @@
 
 ## 建议发布内容
 
-源代码发布可以包含当前目录，但应根据模型授权决定是否包含 `models/best.pt`。
-不要将旧工程目录整体打包发布。
-
+GitHub 只发布当前目录中的源码和文档，不跟踪 `models/best.pt`。权重由 Hugging
+Face 托管，原始游戏截图数据不公开发布。不要将旧工程目录整体打包发布。

@@ -12,9 +12,11 @@ from typing import Any
 
 import yaml
 
+from model_assets import DEFAULT_MODEL_PATH, ensure_model
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
-DEFAULT_MODEL = PROJECT_DIR / "models" / "best.pt"
+DEFAULT_MODEL = DEFAULT_MODEL_PATH
 DEFAULT_OUTPUT = PROJECT_DIR / "runs" / "evaluation"
 
 
@@ -74,6 +76,8 @@ def run_evaluation(
     data = validate_dataset_yaml(data_yaml)
     data_yaml = Path(data["_yaml_path"])
     model_path = Path(model_path).expanduser().resolve()
+    if model_path == DEFAULT_MODEL.resolve():
+        model_path = ensure_model(model_path)
     if not model_path.is_file():
         raise FileNotFoundError(f"模型不存在: {model_path}")
     if not 0 <= confidence <= 1 or not 0 <= iou <= 1:

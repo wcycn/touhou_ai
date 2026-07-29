@@ -42,6 +42,7 @@ from control_logic import (
     collision_metrics,
 )
 from inference_device import select_inference_device
+from model_assets import ModelAssetError, ensure_model
 
 PLAYER_FALLBACK_CONFIDENCE = 0.03
 PLAYER_FALLBACK_MIN_Y_RATIO = 0.42
@@ -469,21 +470,14 @@ class TouhouAIController:
     def load_model(self):
         """加载YOLO模型。"""
         try:
-            # 尝试加载YOLO模型，如果失败则使用简化检测
-            if os.path.exists(self.model_path):
-                self.model = YOLO(self.model_path)
-                print(f"✅ YOLO模型加载成功: {self.model_path}")
-                if hasattr(self.model, 'names'):
-                    print(f"📊 模型类别: {len(self.model.names)} 种")
-            else:
-                print(f"❌ 模型文件不存在: {self.model_path}")
-                print("💡 为避免伪检测驱动键盘，自动控制不会启用轮廓回退")
-                self.model = None
-                return False
+            self.model_path = str(ensure_model(self.model_path))
+            self.model = YOLO(self.model_path)
+            print(f"✅ YOLO模型加载成功: {self.model_path}")
+            if hasattr(self.model, 'names'):
+                print(f"📊 模型类别: {len(self.model.names)} 种")
 
             return True
-
-        except Exception as e:
+        except (ModelAssetError, OSError, RuntimeError) as e:
             print(f"❌ 模型加载失败: {e}")
             print("💡 为避免错误输入，拒绝在无模型状态下继续")
             self.model = None

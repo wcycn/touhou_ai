@@ -51,6 +51,7 @@ class ReleaseLayoutTests(unittest.TestCase):
             "control_logic.py",
             "session_analysis.py",
             "model_evaluation.py",
+            "model_assets.py",
             "docs/ROADMAP.md",
             "docs/ARCHITECTURE.md",
             "docs/RELEASE_CHECKLIST.md",

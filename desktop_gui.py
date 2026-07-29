@@ -1168,17 +1168,22 @@ class TouhouControlCenter:
         ttk.Label(
             data_tools,
             text=(
-                "Open local session data or evaluate the bundled YOLO model "
-                "against a reviewed data.yaml validation set."
+                "Download or verify the published YOLO model, open local "
+                "session data, or evaluate a reviewed validation set."
             ),
             style="CardMuted.TLabel",
             wraplength=480,
         ).pack(anchor="w", pady=(3, 14))
         ttk.Button(
             data_tools,
+            text="Download / Verify YOLO Model",
+            command=lambda: self.start_process("model", ["model"]),
+            style="Accent.TButton",
+        ).pack(fill="x", pady=5)
+        ttk.Button(
+            data_tools,
             text="Open Recordings Folder",
             command=lambda: self.open_path(DEFAULT_SESSIONS_DIR),
-            style="Accent.TButton",
         ).pack(fill="x", pady=5)
         ttk.Button(
             data_tools,

@@ -1,52 +1,85 @@
-# Touhou AI
+<div align="center">
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB)
-![Platform](https://img.shields.io/badge/platform-Linux%20X11-lightgrey)
-![Status](https://img.shields.io/badge/status-experimental-orange)
+<h1>Touhou AI</h1>
 
-《东方红魔乡》视觉检测与规则控制实验项目。
+<p><strong>让计算机视觉模型真正操控《东方红魔乡》的实验性自动驾驶系统</strong></p>
 
-```text
-Wine 游戏窗口 → MSS 截图 → YOLO/PyTorch 检测
-→ 轨迹与风险分析 → 规则决策 → 焦点守护 → PyAutoGUI 输入
-```
+<p>
+  <img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-c2385a">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/Python-3.10%2B-3776AB">
+  <img alt="Linux X11" src="https://img.shields.io/badge/platform-Linux%20X11-4657a8">
+  <img alt="Experimental" src="https://img.shields.io/badge/status-experimental-b36a19">
+  <img alt="AGPL-3.0 License" src="https://img.shields.io/badge/license-AGPL--3.0-21875b">
+</p>
+
+<p>
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#当前表现">当前表现</a> ·
+  <a href="#第一次使用">第一次使用</a> ·
+  <a href="#模型">模型</a> ·
+  <a href="#文档">项目文档</a>
+</p>
+
+</div>
+
+Touhou AI 从游戏窗口实时截图，使用 YOLO 识别自机、敌弹、敌人和道具，再结合
+轨迹预测、风险规划与输入保护控制角色。项目提供完整桌面 GUI，不需要记忆命令，
+也可以先在不发送任何按键的情况下观察 AI 如何判断。
 
 > [!IMPORTANT]
-> 本项目是非官方二次创作技术实验，与上海爱丽丝幻乐团、ZUN 及东方 Project
-> 官方无关联，也未获得其认可或赞助。仓库不提供游戏本体。
+> 这是非官方的二次创作技术实验，与上海爱丽丝幻乐团、ZUN 或东方 Project
+> 官方无关，也未获得其认可或赞助。仓库不提供游戏本体。
 
-## 当前状态
+## 亮点
 
-v1.1.0 已完成基本闭环：启动游戏、定位窗口、安全观察、输入诊断、AI 控制、
-会话记录和离线分析。项目尚未证明能够稳定生存或通关，因此当前定位是实验性
-自动控制原型，不是成熟的自动通关工具。
+| | 功能 | 说明 |
+|---|---|---|
+| 🧠 | 实时视觉控制 | YOLO/PyTorch 检测画面，规则控制器实时规划动作 |
+| 👁️ | Safe Observation | 完整运行识别和决策，但从输入层禁止键鼠事件 |
+| 🎮 | AI Control | 控制移动、射击与有限的自动 Bomb，并持续确认游戏焦点 |
+| 🛡️ | 安全保护 | 窗口失焦、自机丢失或场景不确定时立即释放全部按键 |
+| 📈 | 轨迹与风险 | 跟踪敌弹速度、预测碰撞风险并比较八方向移动路径 |
+| 🎞️ | 会话复盘 | 保存抽样画面、动作和风险数据，支持报告与审核数据导出 |
 
-## 功能
+所有日常功能集中在一个重新设计的桌面控制中心：
 
-- 统一桌面 GUI，无需记忆日常命令
-- X11 游戏窗口发现、客户区定位、移动与焦点确认
-- YOLO/PyTorch 识别自机、敌弹、敌人、Boss 和道具
-- 自机短时跟踪、敌弹速度估计、TTC 与未来碰撞风险
-- 八方向风险规划、真实游戏区边界保护、方向保持和成本滞回
-- 低风险时主动收集道具、对齐敌人并回到场地中部
-- Boss符卡立绘保护和每条命的保守自动符卡预算
-- 场景状态确认：未知、菜单和过场阶段不发送动作
-- 焦点丢失或自机超时未识别时立即释放按键
-- AI 模拟观察：运行完整 AI，但强制禁止键鼠输入
-- AI 自动控制：向确认获得焦点的游戏窗口发送动作
-- 会话记录、抽样画面、JSON/Markdown 报告和预标注导出
+- `Control`：启动观察或正式控制，查看组件状态并调整运行参数
+- `Sessions`：浏览历史会话、抽样画面和分析结果
+- `Live Log`：集中查看运行状态与错误信息
+- `Tools`：环境检查、回归测试、模型评估和记录目录
+- `About`：版本定位、安全边界和已知限制
 
-## 系统要求
+## 当前表现
 
-- Linux X11 桌面
+v1.1.0 已完成从截图、识别、决策到真实按键控制的完整闭环。在当前测试环境中，
+AI 能够进行基本战斗、回到场地中部、主动收集部分 Power 道具，并坚持到第一面
+Boss。
+
+这个版本仍然是实验性原型，而不是稳定的自动通关工具：
+
+- 识别精度尚未通过标准化人工验证集量化
+- 密集 Boss 弹幕仍可能超过当前局部规划能力
+- 激光没有独立标注，无法获得和普通敌弹同等级的建模
+- 菜单、续关和关卡切换尚未形成完整自动状态机
+- 生存效果会受到分辨率、窗口缩放、游戏版本和推理速度影响
+
+当前控制算法已作为最终实验基线冻结。若继续提高上限，更合理的方向是重新整理
+标注数据、补充激光与特殊弹幕类别，并采用可离线验证的新控制方法，而不是继续
+堆叠参数微调。
+
+## 快速开始
+
+### 1. 准备环境
+
+目前仅支持 **Linux X11**。Wayland、Windows 原生运行和 macOS 尚未适配。
+
+需要：
+
 - Python 3.10 或更高版本
-- Wine、`xdotool`、`xwininfo`
+- Wine
+- `xdotool` 与 `xwininfo`
 - Tkinter
-- 支持 PyTorch 的 CPU 或 NVIDIA GPU 环境
-
-如果当前 PyTorch 不包含显卡所需的 CUDA 架构，程序会明确提示原因并自动使用
-CPU，不再让 YOLO 静默产生空检测。
+- CPU，或兼容当前 PyTorch 的 NVIDIA GPU
 
 Ubuntu/Debian 系统组件：
 
@@ -54,10 +87,10 @@ Ubuntu/Debian 系统组件：
 sudo apt install python3-venv python3-tk wine xdotool x11-utils
 ```
 
-## 安装
+### 2. 获取项目
 
 ```bash
-git clone git@github.com:wcycn/touhou_ai.git
+git clone https://github.com/wcycn/touhou_ai.git
 cd touhou_ai
 
 python3 -m venv .venv
@@ -66,141 +99,164 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-将你合法取得的《东方红魔乡》游戏文件放入 `game/`。启动器依次寻找：
+### 3. 获取模型
+
+模型权重由 Hugging Face 托管，不再包含在 GitHub 源码仓库中。首次启动 Safe
+Observation 或 AI Control 时，程序会自动下载约 22.5 MB 的权重到
+`models/best.pt`，并在加载前校验 SHA-256。
+
+也可以提前通过 GUI 的 **Tools → Download / Verify YOLO Model** 下载，或运行：
+
+```bash
+python3 touhou_ai.py model
+```
+
+模型页面：[wcycn/touhou-ai-yolo](https://huggingface.co/wcycn/touhou-ai-yolo)
+
+### 4. 放置游戏
+
+将你合法取得的《东方红魔乡》完整游戏文件复制到 `game/`，保持原目录结构。
+详细说明见 [`game/README.md`](game/README.md)。
+
+启动器依次寻找：
 
 1. `vpatch.exe`
 2. `th06c.exe`
 3. `th06.exe`
 4. `東方紅魔郷.exe`
 
-游戏、用户设置、运行日志、截图、会话和本机数据集均已被 Git 忽略。
+游戏文件已被 `.gitignore` 排除，不会随普通 Git 提交上传。
 
-## 快速启动
-
-先检查环境并运行无输入测试：
+### 5. 启动控制中心
 
 ```bash
-python touhou_ai.py check
-python touhou_ai.py test
-```
-
-启动桌面控制中心：
-
-```bash
-python touhou_ai.py gui
+python3 touhou_ai.py gui
 ```
 
 也可以双击 `启动控制中心.sh`。
 
-## 第一次实际测试
+## 第一次使用
 
-请严格按照以下顺序进行：
+建议按以下顺序进行：
 
-1. 在 GUI 点击“启动游戏”。
-2. 把游戏设置为窗口模式，手动进入一个关卡。
-3. 点击“定位游戏窗口”，确认日志中的坐标和尺寸正确。
-4. 点击“启动 AI 模拟观察（不按键）”，观察 30 至 60 秒。
-5. 确认预览能跟随自机和弹幕，且游戏没有收到 AI 按键。
-6. 点击红色“立即停止 AI / 模拟观察并释放按键”。
-7. 点击“输入测试”，确认游戏角色能短暂左右移动。
-8. 重新进入关卡，选择防守模式，并先使用推荐置信度 `0.15`。
-9. 点击“启动 AI 自动控制（会按键）”。
-10. 随时使用红色停止按钮；紧急情况下把鼠标移到屏幕角落触发
-   PyAutoGUI failsafe。
+1. 在 `Control` 页面点击 **Launch game (vpatch)**。
+2. 手动进入一个关卡，并让游戏保持窗口模式。
+3. 点击 **Check game window**，确认日志中的截图区域正确。
+4. 启动 **Safe Observation**，观察识别框和 AI 判断约 30 秒。
+5. 停止观察后运行 **Test left / right input**。
+6. 确认人物能够短暂移动，再点击 **Start AI Control**。
 
-测试时重点观察：
+> [!CAUTION]
+> AI Control 会持续把焦点切回游戏并发送真实键盘事件。切换到其他程序前，请先
+> 点击 **STOP AI AND RELEASE ALL KEYS**。紧急情况下也可以把鼠标快速移动到
+> 屏幕角落，触发 PyAutoGUI failsafe。
 
-- 自机框是否稳定跟随真实位置
-- 敌弹框是否覆盖主要威胁
-- “当前模式”是否准确显示观察或控制状态
-- 切出游戏窗口后是否立即停止发送动作
-- 自机漏检后是否释放所有按键
-- `sessions/` 是否产生会话记录和抽样画面
+推荐从默认的 `defensive` 模式和 `0.15` 检测置信度开始。Safe Observation 与
+AI Control 使用同一套识别、跟踪和规划逻辑，二者只在是否允许执行输入上不同。
 
-安全观察和自动控制使用同一套检测、跟踪、规划与决策逻辑；区别仅在于观察模式
-使用禁用输入后端，绝不会执行计划动作。
+## 工作方式
 
-## 常用命令
-
-```bash
-# 列出并定位游戏窗口
-python touhou_ai.py locate
-
-# 安全观察，不发送任何按键
-python touhou_ai.py observe
-
-# 短暂测试左右键
-python touhou_ai.py control-test
-
-# 启动正式自动控制（首关生存测试推荐防守模式）
-python touhou_ai.py ai --mode defensive
-
-# 分析最新会话
-python touhou_ai.py analyze
-
-# 导出待人工审核的截图和 YOLO 预标注
-python touhou_ai.py analyze --export-review
-
-# 使用内部验证集评估模型
-python touhou_ai.py model-eval datasets/validation/data.yaml
+```text
+Wine 游戏窗口
+      ↓
+MSS 实时截图
+      ↓
+YOLO / PyTorch 目标检测
+      ↓
+自机与敌弹跟踪 · 碰撞风险预测
+      ↓
+八方向规则规划 · 道具与攻击决策
+      ↓
+焦点确认 · 差分按键状态机
+      ↓
+PyAutoGUI 游戏输入
 ```
 
-## 项目路径
+推理设备会在启动时自动检查。如果当前 PyTorch 不支持显卡架构，程序会明确说明
+原因并回退到 CPU，而不是静默输出空检测。
 
-项目可以整体移动或改名，不依赖启动时的工作目录。默认运行数据均位于项目内部：
+## 运行数据
+
+项目不依赖在线大模型接口。会话、截图、设置和分析结果默认保存在项目内部：
 
 | 内容 | 路径 |
 |---|---|
-| YOLO 模型 | `models/best.pt` |
+| YOLO 权重本地缓存 | `models/best.pt` |
 | 本机游戏 | `game/` |
-| 训练或验证数据 | `datasets/` |
+| 本机数据集 | `datasets/` |
 | GUI 设置 | `settings.json` |
-| 会话和抽样画面 | `sessions/` |
-| 日志、评估和 Ultralytics 配置 | `runs/` |
+| 会话与抽样画面 | `sessions/` |
+| 日志与评估输出 | `runs/` |
 
-## 目录结构
+这些本地运行数据默认不会进入 Git 仓库。
 
-```text
-.
-├── touhou_ai.py          # 统一命令入口
-├── desktop_gui.py        # 桌面控制中心
-├── autopilot.py          # YOLO 检测与自动控制
-├── control_logic.py      # 跟踪、场景、规划和输入状态
-├── observe_game.py       # 无输入的 AI 模拟观察
-├── control_test.py       # 短按键诊断
-├── launch_game.py        # Wine 游戏启动器
-├── window_controller.py  # X11 窗口定位与聚焦
-├── session_recorder.py   # 会话记录与报告
-├── session_analysis.py   # 会话指标与审核候选
-├── model_evaluation.py   # YOLO 数据集评估
-├── inference_device.py   # CUDA 兼容性检测与 CPU 回退
-├── models/               # 模型权重
-├── game/                 # 本机游戏文件，不进入仓库
-├── datasets/             # 本机数据集，不进入仓库
-├── docs/                 # 架构、路线和发布检查
-└── tests/                # 无游戏输入的回归测试
+## 模型
+
+当前发布模型是一个用于项目截图管线的 21 类 Ultralytics YOLO 检测器：
+
+- 仓库：[Hugging Face · wcycn/touhou-ai-yolo](https://huggingface.co/wcycn/touhou-ai-yolo)
+- 文件：`best.pt`
+- 输入尺寸：640
+- SHA-256：`78eb395d277bb5f35f27025a7bada7725928d6e7f7b15681f659a43b5bf60ab2`
+
+Hugging Face 模型卡包含完整类别表、训练数据规模、使用示例和限制。原始训练截图
+没有公开发布。
+
+<details>
+<summary><strong>命令行与分析工具</strong></summary>
+
+日常使用推荐 GUI；下面的命令主要用于诊断和离线分析。
+
+```bash
+# 检查文件、依赖、X11 工具和推理设备
+python3 touhou_ai.py check
+
+# 运行不会启动游戏或发送按键的回归测试
+python3 touhou_ai.py test
+
+# 列出窗口候选并显示最终截图区域
+python3 touhou_ai.py locate
+
+# 运行完整 AI，但禁止一切键鼠输入
+python3 touhou_ai.py observe
+
+# 启动正式控制
+python3 touhou_ai.py ai --mode defensive
+
+# 分析最新会话
+python3 touhou_ai.py analyze
+
+# 导出需要人工审核的画面与 YOLO 预标注
+python3 touhou_ai.py analyze --export-review
+
+# 使用人工标注的验证集评估模型
+python3 touhou_ai.py model-eval datasets/validation/data.yaml
 ```
 
-参见：
+</details>
 
-- [项目状态](docs/PROJECT_STATUS.md)
-- [架构与安全边界](docs/ARCHITECTURE.md)
-- [开发路线](docs/ROADMAP.md)
-- [发布检查清单](docs/RELEASE_CHECKLIST.md)
-- [版本变更](CHANGELOG.md)
+## 文档
+
+- [当前能力与发布边界](docs/PROJECT_STATUS.md)
+- [架构与输入安全设计](docs/ARCHITECTURE.md)
+- [开发路线与验收目标](docs/ROADMAP.md)
+- [版本变更记录](CHANGELOG.md)
 
 ## 官方相关链接
 
 - [上海爱丽丝幻乐团官方网站](http://www16.big.or.jp/~zun/)
 - [《东方红魔乡 ～ the Embodiment of Scarlet Devil.》官方作品页](https://www16.big.or.jp/~zun/html/th06.html)
+- [东方 Project 二次创作指南](https://touhou-project.news/guideline/)
 
 《东方 Project》《东方红魔乡》及相关名称、角色和游戏资源的权利归其各自权利人
 所有。请通过合法渠道取得游戏，并遵守东方 Project 二次创作规则及所在地法律。
 
-## 发布与许可
+## 许可证
 
-- 商业游戏文件、Wine 前缀、运行截图、用户配置和数据集不得进入发布包。
-- `models/best.pt` 的训练数据来源、授权和权重再分发权仍需发布者确认。
-- 当前仓库尚未提供开源许可证；确定许可证前，请勿将代码可用性误解为已获得
-  复制、修改或再分发许可。
-- 发布前请完成 `docs/RELEASE_CHECKLIST.md`。
+Copyright © 2026 wcycn
+
+项目源代码与 Hugging Face 发布的 YOLO 模型权重采用
+[GNU Affero General Public License v3.0](LICENSE) 发布。你可以使用、研究、修改
+和再分发，但需要保留许可证，并按照 AGPL-3.0 的要求公开相应源代码。
+
+游戏本体和原始训练截图不属于本仓库，也不在此许可证的授权范围内。

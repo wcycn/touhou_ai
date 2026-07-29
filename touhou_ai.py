@@ -30,9 +30,9 @@ def run_check() -> int:
         "会话分析模块": PROJECT_DIR / "session_analysis.py",
         "跟踪与控制逻辑": PROJECT_DIR / "control_logic.py",
         "模型评估工具": PROJECT_DIR / "model_evaluation.py",
+        "模型下载与校验": PROJECT_DIR / "model_assets.py",
         "安全观察模式": PROJECT_DIR / "observe_game.py",
         "X11窗口定位器": PROJECT_DIR / "window_controller.py",
-        "YOLO 模型": PROJECT_DIR / "models" / "best.pt",
     }
     required_modules = (
         "cv2",
@@ -55,6 +55,24 @@ def run_check() -> int:
         ok = path.is_file()
         print(f"  {'OK' if ok else '缺失':<4} {label}: {path.relative_to(ROOT)}")
         failed = failed or not ok
+
+    from model_assets import (
+        DEFAULT_MODEL_PATH,
+        MODEL_PAGE_URL,
+        verify_model,
+    )
+
+    if DEFAULT_MODEL_PATH.is_file():
+        model_ok = verify_model()
+        model_state = "OK" if model_ok else "校验失败"
+        print(
+            f"  {model_state:<4} YOLO 模型: "
+            f"{DEFAULT_MODEL_PATH.relative_to(ROOT)}"
+        )
+        failed = failed or not model_ok
+    else:
+        print("  待下载 YOLO 模型: 首次启动 AI 时从 Hugging Face 获取")
+        print(f"         {MODEL_PAGE_URL}")
 
     print("\nPython依赖：")
     for name in required_modules:
@@ -132,6 +150,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("check", help="检查文件、Python 依赖和外部环境")
     subparsers.add_parser("test", help="运行不发送按键的核心逻辑测试")
     subparsers.add_parser("gui", help="启动新的统一桌面控制中心")
+    subparsers.add_parser(
+        "model",
+        help="从Hugging Face下载并校验发布模型",
+    )
     analyze_parser = subparsers.add_parser(
         "analyze",
         help="分析最新、指定或全部运行会话",
@@ -226,6 +248,8 @@ def main() -> int:
         )
     if args.command == "gui":
         return call_project([sys.executable, "desktop_gui.py"])
+    if args.command == "model":
+        return call_project([sys.executable, "model_assets.py"])
     if args.command == "analyze":
         command = [
             sys.executable,
