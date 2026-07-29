@@ -241,6 +241,7 @@ python3 touhou_ai.py model-eval datasets/validation/data.yaml
 - [当前能力与发布边界](docs/PROJECT_STATUS.md)
 - [架构与输入安全设计](docs/ARCHITECTURE.md)
 - [开发路线与验收目标](docs/ROADMAP.md)
+- [v1.1.0 发行说明](docs/RELEASE_NOTES_v1.1.0.md)
 - [版本变更记录](CHANGELOG.md)
 
 ## 官方相关链接
