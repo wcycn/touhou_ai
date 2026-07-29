@@ -23,6 +23,10 @@
 旧工程中另有一份 `final_train` 自动预标注候选集。它由当前模型生成，不是训练
 当前模型所用的原始数据集。
 
+对应训练数据已备份到私人 Hugging Face Dataset 仓库：
+<https://huggingface.co/datasets/wcycn/touhou-ai-dataset>。该地址仅仓库所有者
+可访问，不作为公开数据集分发。
+
 ## 权重信息
 
 - 任务：目标检测

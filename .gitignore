@@ -18,6 +18,8 @@ game/*
 datasets/*
 !datasets/README.md
 !datasets/.gitkeep
+!datasets/HUGGINGFACE_DATASET_CARD.md
+!datasets/HUGGINGFACE_DATASET_CONFIG.yaml
 
 models/*.pt
 models/*.onnx

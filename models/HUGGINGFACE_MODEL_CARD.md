@@ -67,9 +67,11 @@ annotated screenshot dataset:
 - Annotation format: YOLO bounding boxes
 
 The raw screenshots are not distributed with this model because they contain
-game imagery. A separate `final_train` folder found in the historical project
-was produced later through automatic annotation and was not used to train this
-checkpoint.
+game imagery. The repository owner keeps a
+[private archival backup](https://huggingface.co/datasets/wcycn/touhou-ai-dataset)
+for recovery and reproducibility; it is not a public dataset. A separate
+`final_train` folder found in the historical project was produced later through
+automatic annotation and was not used to train this checkpoint.
 
 ## Usage
 

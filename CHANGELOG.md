@@ -24,5 +24,7 @@
 - 完成英文发布版GUI视觉重构，并将维护工具收纳到独立页面。
 - 重写GitHub项目首页，补充模型来源、训练集规模和真实能力边界。
 - 将YOLO权重和模型卡发布到Hugging Face，GitHub不再跟踪二进制权重。
+- 将原始训练集备份到独立的Hugging Face私人Dataset仓库。
+- 在GitHub、Hugging Face模型页和数据集说明之间增加交叉链接。
 - 增加模型自动下载、SHA-256校验以及GUI手动下载入口。
 - 源代码与Hugging Face发布的YOLO权重采用GNU AGPL v3.0许可证。

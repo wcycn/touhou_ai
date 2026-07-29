@@ -1,0 +1,26 @@
+path: .
+train: train/images
+val: val/images
+
+names:
+  0: boss
+  1: boss_occluded
+  2: bullet_enemy
+  3: bullet_enemy_big_blue
+  4: bullet_enemy_big_green
+  5: bullet_enemy_big_red
+  6: bullet_enemy_big_yellow
+  7: bullet_enemy_small_blue
+  8: bullet_enemy_small_green
+  9: bullet_enemy_small_red
+  10: bullet_enemy_small_yellow
+  11: bullet_enemy_unique_blue
+  12: bullet_enemy_unique_green
+  13: bullet_enemy_unique_red
+  14: bullet_enemy_unique_yellow
+  15: bullet_player
+  16: character
+  17: enemy_small_blue
+  18: enemy_small_red
+  19: powerup_blue
+  20: powerup_red

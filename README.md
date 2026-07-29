@@ -198,9 +198,10 @@ PyAutoGUI 游戏输入
 - 文件：`best.pt`
 - 输入尺寸：640
 - SHA-256：`78eb395d277bb5f35f27025a7bada7725928d6e7f7b15681f659a43b5bf60ab2`
+- 训练数据备份：[Hugging Face · wcycn/touhou-ai-dataset](https://huggingface.co/datasets/wcycn/touhou-ai-dataset)（私人仓库，仅所有者可访问）
 
-Hugging Face 模型卡包含完整类别表、训练数据规模、使用示例和限制。原始训练截图
-没有公开发布。
+Hugging Face 模型卡包含完整类别表、训练数据规模、使用示例和限制。原始训练
+截图只保存在私人 Dataset 仓库中，没有公开发布。
 
 <details>
 <summary><strong>命令行与分析工具</strong></summary>

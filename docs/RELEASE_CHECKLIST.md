@@ -6,6 +6,8 @@
 - [x] 确认 `models/best.pt` 由项目作者使用自行整理和标注的数据训练
 - [x] 将模型权重与模型卡发布到 `wcycn/touhou-ai-yolo`
 - [x] 从 Hugging Face 回下载权重并核对 SHA-256
+- [x] 将 1,834 张训练/验证图片与对应标签备份到私人 Dataset 仓库
+- [x] 在 GitHub、模型仓库与私人数据集说明中添加交叉链接
 - [x] 确认 Git 历史中没有游戏文件、API密钥、密码或个人路径
 - [x] 确认 Git 只跟踪 `game/README.md` 与 `game/.gitkeep`
 - [x] 确认 `sessions/`、`runs/`、设置、Wine前缀和用户截图未被跟踪
